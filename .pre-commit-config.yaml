@@ -1,0 +1,9 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.10
+    hooks:
+      # 1. 린터(Linter) 실행 및 자동 수정
+      - id: ruff
+        args: [ --fix ]
+      # 2. 포매터(Formatter) 실행
+      - id: ruff-format
