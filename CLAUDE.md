@@ -91,12 +91,15 @@ server.py                # FastAPI mode for Next.js (Phase 5)
 Three Pydantic models define the shared state:
 
 **`UserProfile`** — grows incrementally across both interviews.
-- Step-1 minimum fields: `age`, `income_level`, `disability`, `employment_status`, `region`
-- `income_level` uses `IncomeLevel` Enum (`기초생활수급자` / `차상위계층` / `일반`)
-- `employment_status` uses `EmploymentStatus` Enum (`취업` / `실업` / `비경제활동`)
-- `is_elderly` is a `@computed_field` derived from `age >= 65` — never set it directly
-- Step-2 service-specific fields: `household_size`, `disability_grade`, `is_single_parent`, etc.
+- Step-1 minimum fields: `age`, `household_size`, `marital_status`, `has_children`, `disability`, `disability_severity`, `employment_status`, `region`, `income_level`
+  - `income_level` uses `IncomeLevel` Enum (`기초생활수급자` / `차상위계층` / `저소득` / `일반`) — LLM determines this from conversation, not direct user input
+  - `employment_status` uses `EmploymentStatus` Enum (`취업` / `실업` / `비경제활동`)
+  - `marital_status` uses `MaritalStatus` Enum (`미혼` / `기혼` / `이혼` / `사별`)
+  - `disability_severity` uses `DisabilitySeverity` Enum (`경증` / `중증`) — only collected when `disability=True`
+  - `is_elderly` is a `@computed_field` derived from `age >= 65` — never set it directly
+- Step-2 service-specific fields: `disability_type`, `disability_grade`, `children_ages`, `housing_type`, `household_type`, `is_veteran`, `is_single_parent`, etc.
 - `extra_fields: dict[str, str | int | bool]` — catch-all for fields not in the model; keys are later promoted to regular fields if they appear often
+- See `docs/state_design.md` for full field list and income_level collection flow
 
 **`WelfareCandidate`** — one entry per RAG result.
 - Phase 1 (after `rag_search`): `service_id`, `service_name`, `department`, `eligibility_reason`, `summary`, `score`, `priority`
