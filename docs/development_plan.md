@@ -575,6 +575,7 @@ Response: {
 
 | # | 작업 |
 |---|------|
+| 5-0 | **`graph/builder.py` SQLite checkpointer 수정** (B 담당): `langgraph-checkpoint-sqlite` 패키지 설치 + `AsyncSqliteSaver.from_conn_string()`을 `async with` 컨텍스트로 올바르게 사용하도록 `_build_checkpointer()` 리팩터링 필요. 현재 sqlite 모드 실행 시 오류 발생 |
 | 5-1 | 에러 처리 보강: LLM 응답 파싱 실패 최대 재시도 횟수 조정, 회복 불가 시 사용자 친화적 메시지 출력 |
 | 5-2 | 대화 히스토리 관리: 컨텍스트 길이 초과 방지 (요약 또는 슬라이딩 윈도우) |
 | 5-3 | `main.py` CLI 인터페이스 구현 (대화형 루프, 서비스 선택 UX 포함, `interrupt()` 재개 패턴 포함) |
