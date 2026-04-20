@@ -80,7 +80,7 @@ class WelfareCandidate(BaseModel):
     serv_id: str
     serv_nm: str
     serv_dgst: str
-    jur_mnof_nm: str | None = None  # 담당 기관명 — RAG search 응답 추가 요청 예정
+    department: str = ""  # 담당 기관명 — RAG /welfare/search 응답의 "department"
     eligibility_reason: str = ""  # rag_search_node에서 LLM으로 생성
     score: float = 0.0
     priority: int = 0  # rag_search_node가 score 내림차순 정렬 후 부여

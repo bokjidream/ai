@@ -87,7 +87,7 @@ class TestWelfareCandidate:
         )
         assert candidate.score == 0.0
         assert candidate.priority == 0
-        assert candidate.jur_mnof_nm is None
+        assert candidate.department == ""
         assert candidate.eligibility_reason == ""
         assert candidate.required_documents == []
         assert candidate.application_fields == []
