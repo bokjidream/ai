@@ -178,13 +178,18 @@ class MaritalStatus(str, Enum):
     DIVORCED = "이혼"
     WIDOWED = "사별"
 
-class DisabilitySeverity(str, Enum):
+class DisabilitySeverity(StrEnum):
     MILD = "경증"
     SEVERE = "중증"
+
+class Gender(StrEnum):
+    MALE = "남성"
+    FEMALE = "여성"
 
 class UserProfile(BaseModel):
     # ── 1단계: RAG 검색 최소 필드 ──
     age: int | None = None
+    gender: Gender | None = None           # 여성 전용 서비스 필터링, 임신 여부 조건부 수집
     region: str | None = None
     household_size: int | None = None      # 소득 구간 판단 선행 조건
     marital_status: MaritalStatus | None = None
@@ -193,7 +198,6 @@ class UserProfile(BaseModel):
     disability_severity: DisabilitySeverity | None = None  # disability=True일 때만
     employment_status: EmploymentStatus | None = None
     income_level: IncomeLevel | None = None  # LLM이 대화로 판단, 직접 입력 X
-    pregnant: bool | None = None           # RAG search 요청 필드
 
     @computed_field
     @property

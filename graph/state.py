@@ -40,11 +40,19 @@ class DisabilitySeverity(StrEnum):
     SEVERE = "중증"
 
 
+class Gender(StrEnum):
+    """성별."""
+
+    MALE = "남성"
+    FEMALE = "여성"
+
+
 class UserProfile(BaseModel):
     """인터뷰로 수집하는 사용자 정보."""
 
     # ── 1단계: RAG 검색 최소 필드 ──
     age: int | None = None
+    gender: Gender | None = None
     region: str | None = None
     household_size: int | None = None
     marital_status: MaritalStatus | None = None

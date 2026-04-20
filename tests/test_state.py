@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from graph.state import (
     DisabilitySeverity,
     EmploymentStatus,
+    Gender,
     IncomeLevel,
     MaritalStatus,
     UserProfile,
@@ -27,6 +28,13 @@ class TestUserProfile:
 
     def test_is_elderly_none_when_age_missing(self):
         assert UserProfile().is_elderly is None
+
+    def test_gender_enum(self):
+        assert UserProfile(gender=Gender.FEMALE).gender == "여성"
+        assert UserProfile(gender=Gender.MALE).gender == "남성"
+
+    def test_gender_default_none(self):
+        assert UserProfile().gender is None
 
     def test_income_level_enum(self):
         profile = UserProfile(income_level=IncomeLevel.BASIC)
