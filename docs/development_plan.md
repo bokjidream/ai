@@ -271,6 +271,10 @@ class AgentState(TypedDict):
 
 > **구현 시 주의:** `AgentState`는 `TypedDict`이므로 기본값을 선언부에 지정할 수 없습니다. 그래프 진입 시 `graph.invoke()`에 전달하는 초기 상태 딕셔너리에서 모든 필드의 기본값(예: `initial_missing_fields=[]`, `welfare_candidates=[]`, `document_guidance=""` 등)을 명시적으로 채워줘야 합니다. 누락된 필드에 접근하면 `KeyError`가 발생합니다.
 
+> **`disability_severity` 유효성 검사 없음:** `UserProfile` 모델 레벨에서 `disability=False`일 때 `disability_severity`를 자동으로 `None`으로 설정하는 validator가 없습니다. `disability=True`일 때만 수집하는 것은 인터뷰 로직이 담당합니다. 모델에 직접 `disability=False, disability_severity="중증"`을 주입하면 오류 없이 저장됩니다. 테스트 시 주의하세요.
+
+> **`extra_fields` 뮤터블 기본값 안전함:** `extra_fields: dict[str, str | int | bool] = {}`처럼 Pydantic `BaseModel`에서 뮤터블 기본값을 선언해도 안전합니다. Pydantic v2는 인스턴스 생성 시마다 새 딕셔너리를 복사하므로 인스턴스 간 상태가 공유되지 않습니다. (`dataclass`나 순수 Python 클래스와 다름)
+
 ---
 
 ## 4. 개발 단계별 계획
