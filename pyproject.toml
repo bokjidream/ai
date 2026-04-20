@@ -45,6 +45,9 @@ ignore = [
     "B008", # 함수 인자 기본값으로 함수 호출 허용 (FastAPI의 Depends, Query 등 사용을 위해 필수)
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D101", "D102", "D103"]
+
 [tool.ruff.lint.pydocstyle]
 # Docstring 컨벤션을 구글 스타일로 지정
 convention = "google"

@@ -158,13 +158,12 @@ graph.invoke(Command(resume=user_input), config)
 Two HTTP calls to the `rag/` service. **Do not change the JSON shape without coordinating with `rag/`.**
 
 ```
-POST /search
+POST /welfare/search
 Body:  { "profile": { "age": 65, "income_level": "기초생활수급자", ... }, "top_k": 5 }
 Response: [{ "id", "name", "department", "summary", "eligibility_reason", "score" }, ...]
 # Empty list [] = no results; pipeline ends, no LLM fallback
 
-POST /services/detail
-Body:  { "service_id": "welfare_001" }
+GET /welfare/{serv_id}
 Response: { "id", "name", "required_documents", "application_fields", "application_url", ... }
 # application_fields is required by draft_writer
 ```
