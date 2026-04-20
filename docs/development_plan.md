@@ -224,9 +224,17 @@ class WelfareCandidate(BaseModel):
     eligibility_reason: str = ""           # rag_search_node에서 LLM으로 생성
     score: float = 0.0
     priority: int = 0                      # score 내림차순 정렬 후 rag_search_node가 부여
-    # ── 2차 RAG 상세 조회 후 채워짐 ──
-    required_documents: list[str] = []    # GET /welfare/{serv_id} 응답 (현재 빈 배열)
-    application_fields: list[str] = []    # GET /welfare/{serv_id} 응답 (현재 빈 배열)
+    # ── 2차 RAG 상세 조회 후 채워짐 (Phase 2 rag_detail_node 구현 시 추가) ──
+    # GET /welfare/{serv_id} 응답 필드:
+    #   tgtr_dtl_cn: str   — 수급 대상 상세 (detail_missing_fields 결정에 사용)
+    #   slct_crit_cn: str  — 선정 기준
+    #   alw_serv_cn: str   — 서비스 내용
+    #   sprt_cyc_nm: str   — 지원 주기
+    #   srv_pvsn_nm: str   — 제공 방법
+    #   trgter_indvdl: list[str]
+    #   intrs_thema: list[str]
+    required_documents: list[str] = []    # 현재 빈 배열로 수신 (RAG 미구현)
+    application_fields: list[str] = []    # 현재 빈 배열로 수신 (RAG 미구현)
     application_url: str | None = None
     detail_fetched: bool = False
 ```

@@ -53,7 +53,6 @@ class UserProfile(BaseModel):
     disability_severity: DisabilitySeverity | None = None  # disability=True일 때만
     employment_status: EmploymentStatus | None = None
     income_level: IncomeLevel | None = None  # LLM이 대화로 판단, 직접 입력 X
-    pregnant: bool | None = None
 
     @computed_field
     @property

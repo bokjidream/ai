@@ -105,10 +105,3 @@ class TestWelfareCandidate:
             serv_dgst="노인 연금",
         )
         assert candidate.eligibility_reason == ""
-
-    def test_pregnant_field_exists(self):
-        profile = UserProfile(pregnant=True)
-        assert profile.pregnant is True
-
-    def test_pregnant_default_none(self):
-        assert UserProfile().pregnant is None

@@ -25,7 +25,6 @@ def run():
             "disability",
             "employment_status",
             "income_level",
-            "pregnant",
         ],
         "welfare_candidates": [],
         "selected_service": None,
