@@ -32,10 +32,10 @@ prompts/ *.txt   tests/       main.py        server.py
 
 ## Data Models (`graph/state.py`)
 
-**Enums (StrEnum):** `IncomeLevel` (`기초수급`/`차상위`/`저소득`/`일반`) · `Gender` (`남성`/`여성`) · `EmploymentStatus` (`취업`/`실업`/`비경제활동`) · `MaritalStatus` (`미혼`/`기혼`/`이혼`/`사별`) · `DisabilitySeverity` (`경증`/`중증`)
+**Enums (StrEnum):** `IncomeLevel` (`기초수급`/`차상위`/`저소득`/`일반`) · `EmploymentStatus` (`취업`/`실업`/`비경제활동`) · `MaritalStatus` (`미혼`/`기혼`/`이혼`/`사별`) · `DisabilitySeverity` (`경증`/`중증`)
 
 **`UserProfile`** (Pydantic BaseModel)
-- Step-1: `age`, `gender`, `region`, `household_size`, `marital_status`, `has_children`, `disability`, `employment_status`, `income_level`
+- Step-1: `age`, `region`, `household_size`, `marital_status`, `has_children`, `disability`, `employment_status`, `income_level`
 - `disability_severity` — conditional, only when `disability=True`; no model-level validator (enforced by interview logic)
 - `is_elderly` — `@computed_field` from `age >= 65`; never set directly
 - Step-2: `disability_type`, `disability_grade`, `children_ages`, `housing_type`, `household_type`, `is_veteran`, `is_single_parent`

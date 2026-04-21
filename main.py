@@ -18,7 +18,6 @@ def run():
         "user_profile": UserProfile(),
         "initial_missing_fields": [
             "age",
-            "gender",
             "region",
             "household_size",
             "marital_status",
