@@ -162,8 +162,9 @@ from enum import Enum
 from pydantic import BaseModel, computed_field
 
 class IncomeLevel(str, Enum):
-    BASIC = "기초생활수급자"
-    NEAR_POOR = "차상위계층"
+    BASIC = "기초수급"        # RAG 팀 필드값 기준으로 통일
+    NEAR_POOR = "차상위"
+    LOW_INCOME = "저소득"
     GENERAL = "일반"
 
 class EmploymentStatus(str, Enum):
@@ -171,32 +172,42 @@ class EmploymentStatus(str, Enum):
     UNEMPLOYED = "실업"
     INACTIVE = "비경제활동"
 
+class MaritalStatus(str, Enum):
+    SINGLE = "미혼"
+    MARRIED = "기혼"
+    DIVORCED = "이혼"
+    WIDOWED = "사별"
+
+class DisabilitySeverity(StrEnum):
+    MILD = "경증"
+    SEVERE = "중증"
+
 class UserProfile(BaseModel):
-    # ── 1단계 인터뷰에서 수집하는 최소 필드 ──
+    # ── 1단계: RAG 검색 최소 필드 ──
     age: int | None = None
-    income_level: IncomeLevel | None = None
-    disability: bool | None = None         # 장애 여부
-    # is_elderly 제거: age >= 65로 파생 가능 → @computed_field로 처리하여 불일치 방지
+    region: str | None = None
+    household_size: int | None = None      # 소득 구간 판단 선행 조건
+    marital_status: MaritalStatus | None = None
+    has_children: bool | None = None
+    disability: bool | None = None
+    disability_severity: DisabilitySeverity | None = None  # disability=True일 때만
+    employment_status: EmploymentStatus | None = None
+    income_level: IncomeLevel | None = None  # LLM이 대화로 판단, 직접 입력 X
+
     @computed_field
     @property
     def is_elderly(self) -> bool | None:
         return self.age >= 65 if self.age is not None else None
-    employment_status: EmploymentStatus | None = None
-    region: str | None = None              # 거주 지역 (시/군/구)
 
-    # ── 2단계 인터뷰에서 예상 가능한 서비스 특화 필드 ──
-    has_children: bool | None = None       # 아동/청소년 자녀 여부
-    household_size: int | None = None      # 가구원 수
-    disability_grade: str | None = None    # 장애 등급 (장애인 서비스 선택 시)
-    is_single_parent: bool | None = None   # 한부모 여부 (한부모 서비스 선택 시)
-    children_ages: list[int] | None = None # 자녀 나이 목록 (아동수당 등 선택 시)
-    housing_type: str | None = None        # 주거 형태 (주거급여 선택 시)
-    is_veteran: bool | None = None         # 국가유공자 여부
+    # ── 2단계: 서비스 특화 필드 ──
+    disability_type: str | None = None
+    disability_grade: str | None = None
+    children_ages: list[int] | None = None
+    housing_type: str | None = None
+    household_type: str | None = None
+    is_veteran: bool | None = None
+    is_single_parent: bool | None = None
 
-    # ── catch-all: 위 정규 필드에 없는 서비스 특화 필드 ──
-    # RAG 상세 정보에서 요구하지만 모델에 정의되지 않은 항목을 동적으로 저장
-    # 예: {"deposit_amount": 50000000, "vehicle_owned": False, "veteran_number": "12345"}
-    # 자주 등장하는 키는 이후 정규 필드로 승격
     extra_fields: dict[str, str | int | bool] = {}
 ```
 
@@ -204,19 +215,27 @@ class UserProfile(BaseModel):
 
 ```python
 class WelfareCandidate(BaseModel):
-    service_id: str                        # RAG 문서 ID (RAG /search 응답의 "id")
-    service_name: str                      # 복지 서비스명 (RAG /search 응답의 "name")
-    department: str                        # 담당 기관 (RAG /search 응답의 "department")
-    eligibility_reason: str               # 해당 이유: RAG /search 응답의 "eligibility_reason" 필드
-                                           # (RAG가 검색 결과에 포함해야 함 — rag/ 파트 협의 필요)
-    summary: str                           # 서비스 요약 (RAG /search 응답의 "summary")
-    score: float = 0.0                     # RAG 유사도 점수 (RAG /search 응답의 "score")
-    priority: int = 0                      # 우선순위: score 내림차순 정렬 후 순위로 설정 (rag_search_node 내부 계산)
-    # 상세 정보는 서비스 선택 후 rag_detail에서 채워짐
-    required_documents: list[str] = []    # 필요 서류 목록 (2차 RAG 후 채워짐)
-    application_fields: list[str] = []    # 신청서 항목 목록 (2차 RAG 후 채워짐 — draft_writer가 사용)
-    application_url: str | None = None    # 신청 URL (2차 RAG 후 채워짐)
-    detail_fetched: bool = False          # 상세 정보 조회 완료 여부
+    # ── 1차 RAG 검색 후 채워짐 (필드명 RAG 응답 기준) ──
+    serv_id: str                           # RAG /welfare/search 응답의 "serv_id"
+    serv_nm: str                           # RAG /welfare/search 응답의 "serv_nm"
+    serv_dgst: str                         # RAG /welfare/search 응답의 "serv_dgst"
+    department: str = ""                   # 담당 기관명 — RAG /welfare/search 응답의 "department"
+    eligibility_reason: str = ""           # rag_search_node에서 LLM으로 생성
+    score: float = 0.0
+    priority: int = 0                      # score 내림차순 정렬 후 rag_search_node가 부여
+    # ── 2차 RAG 상세 조회 후 채워짐 (Phase 2 rag_detail_node 구현 시 추가) ──
+    # GET /welfare/{serv_id} 응답 필드:
+    #   tgtr_dtl_cn: str   — 수급 대상 상세 (detail_missing_fields 결정에 사용)
+    #   slct_crit_cn: str  — 선정 기준
+    #   alw_serv_cn: str   — 서비스 내용
+    #   sprt_cyc_nm: str   — 지원 주기
+    #   srv_pvsn_nm: str   — 제공 방법
+    #   trgter_indvdl: list[str]
+    #   intrs_thema: list[str]
+    required_documents: list[str] = []    # 현재 빈 배열로 수신 (RAG 미구현)
+    application_fields: list[str] = []    # 현재 빈 배열로 수신 (RAG 미구현)
+    application_url: str | None = None
+    detail_fetched: bool = False
 ```
 
 ### AgentState
@@ -246,6 +265,10 @@ class AgentState(TypedDict):
 ```
 
 > **구현 시 주의:** `AgentState`는 `TypedDict`이므로 기본값을 선언부에 지정할 수 없습니다. 그래프 진입 시 `graph.invoke()`에 전달하는 초기 상태 딕셔너리에서 모든 필드의 기본값(예: `initial_missing_fields=[]`, `welfare_candidates=[]`, `document_guidance=""` 등)을 명시적으로 채워줘야 합니다. 누락된 필드에 접근하면 `KeyError`가 발생합니다.
+
+> **`disability_severity` 유효성 검사 없음:** `UserProfile` 모델 레벨에서 `disability=False`일 때 `disability_severity`를 자동으로 `None`으로 설정하는 validator가 없습니다. `disability=True`일 때만 수집하는 것은 인터뷰 로직이 담당합니다. 모델에 직접 `disability=False, disability_severity="중증"`을 주입하면 오류 없이 저장됩니다. 테스트 시 주의하세요.
+
+> **`extra_fields` 뮤터블 기본값 안전함:** `extra_fields: dict[str, str | int | bool] = {}`처럼 Pydantic `BaseModel`에서 뮤터블 기본값을 선언해도 안전합니다. Pydantic v2는 인스턴스 생성 시마다 새 딕셔너리를 복사하므로 인스턴스 간 상태가 공유되지 않습니다. (`dataclass`나 순수 Python 클래스와 다름)
 
 ---
 
@@ -468,9 +491,12 @@ def route_after_detail_interview(state: AgentState) -> str:
 | 3-5 | RAG 통합 테스트 | `tests/test_rag_integration.py` |
 
 **RAG API 계약** (Phase 2 모킹의 기준 — 아래 스키마 기준으로 스텁 및 모킹 구현):
+
+> **확정 스펙 (2026-04-20 rag/ 팀 PR #7 기준):** 엔드포인트 경로 및 메서드가 아래와 같이 확정되었습니다.
+
 ```
 # 1차: 후보 목록 검색 — AI는 JSON을 전송, 자연어 변환은 RAG 내부에서 처리
-POST /search
+POST /welfare/search
 Body: {
   "profile": {
     "age": 65,
@@ -494,9 +520,8 @@ Response: [
 ]
 # 결과 없으면: []  (LLM 폴백 없음 — 빈 목록 그대로 반환)
 
-# 2차: 상세 정보 조회 — 서비스 ID로 조회
-POST /services/detail
-Body: { "service_id": "welfare_001" }
+# 2차: 상세 정보 조회 — 서비스 ID를 경로 파라미터로 조회 (POST → GET 변경)
+GET /welfare/{serv_id}
 Response: {
   "id": "welfare_001",
   "name": "기초연금",
@@ -545,6 +570,7 @@ Response: {
 
 | # | 작업 |
 |---|------|
+| 5-0 | **`graph/builder.py` SQLite checkpointer 수정** (B 담당): `langgraph-checkpoint-sqlite` 패키지 설치 + `AsyncSqliteSaver.from_conn_string()`을 `async with` 컨텍스트로 올바르게 사용하도록 `_build_checkpointer()` 리팩터링 필요. 현재 sqlite 모드 실행 시 오류 발생 |
 | 5-1 | 에러 처리 보강: LLM 응답 파싱 실패 최대 재시도 횟수 조정, 회복 불가 시 사용자 친화적 메시지 출력 |
 | 5-2 | 대화 히스토리 관리: 컨텍스트 길이 초과 방지 (요약 또는 슬라이딩 윈도우) |
 | 5-3 | `main.py` CLI 인터페이스 구현 (대화형 루프, 서비스 선택 UX 포함, `interrupt()` 재개 패턴 포함) |
@@ -578,7 +604,7 @@ Response: {
 **출력:** 업데이트된 `welfare_candidates`
 
 **핵심 동작:**
-1. `user_profile` 최소 필드를 JSON으로 직렬화하여 RAG 서비스 `/search`에 전송
+1. `user_profile` 최소 필드를 JSON으로 직렬화하여 RAG 서비스 `POST /welfare/search`에 전송
 2. 자연어 변환은 RAG 서비스 내부에서 처리 — AI 파트는 JSON 전송만 담당
 3. 응답을 `WelfareCandidate` 목록으로 변환 (상세 정보 미포함 상태)
 4. **결과가 빈 목록인 경우 LLM 폴백 없이 사용자에게 "해당하는 서비스를 찾지 못했습니다" 안내 후 END로 라우팅**
@@ -605,7 +631,7 @@ Response: {
 **출력:** 업데이트된 `selected_service`(상세 필드 채워짐), `detail_missing_fields`
 
 **핵심 동작:**
-1. `selected_service.service_id`로 RAG `/services/detail` 조회
+1. `selected_service.service_id`로 RAG `GET /welfare/{serv_id}` 조회
 2. 응답으로 `selected_service`의 `required_documents`, `application_url` 등 상세 필드 채우기
 3. RAG 응답의 자격 요건(`eligibility`)을 **LLM에 전달(structured output)**하여 현재 `user_profile`에서 부족한 필드 목록을 추론 → `detail_missing_fields`에 설정
    - `UserProfile` 정규 필드에 있으면 → 필드명 그대로 추가 (예: `"household_size"`)
@@ -720,19 +746,22 @@ def mock_llm():
 def mock_rag_client():
     client = AsyncMock()
     # 1차 검색 응답 모킹 (아래는 예시 — 실제 구현 시 RAG API 계약 스키마에 맞춰 모든 필수 필드 포함)
-    client.search.return_value = [
-        {"id": "welfare_001", "name": "기초연금", "summary": "만 65세 이상 저소득 노인 연금", "score": 0.95},
-    ]
-    # 2차 상세 조회 응답 모킹 (아래는 예시 — 실제 구현 시 RAG API 계약 스키마에 맞춰 모든 필수 필드 포함)
+    client.search.return_value = {
+        "results": [
+            {"serv_id": "WLF00000035", "serv_nm": "기초연금", "serv_dgst": "만 65세 이상 저소득 노인 연금", "score": 0.95},
+        ]
+    }
+    # 2차 상세 조회 응답 모킹
     client.get_detail.return_value = {
-        "id": "welfare_001",
-        "required_documents": ["신분증", "통장사본"],
+        "serv_id": "WLF00000035",
+        "required_documents": [],   # 현재 빈 배열로 합의
+        "application_fields": [],   # 현재 빈 배열로 합의
         "application_url": "https://www.bokjiro.go.kr",
     }
     return client
 ```
 
-> **모킹 스키마 준수:** 위 예시는 구조를 보여주기 위한 것입니다. 실제 구현 시에는 `WelfareCandidate` 모델의 필수 필드(`department`, `eligibility_reason` 등 기본값 없는 필드 포함)를 모두 채운 응답을 모킹해야 합니다. 스키마 기준은 본 문서의 RAG API 계약 섹션을 따릅니다.
+> **모킹 스키마 준수:** 필드명은 RAG API 응답 기준(`serv_id`, `serv_nm`, `serv_dgst`)을 따릅니다. `required_documents`, `application_fields`는 현재 RAG API 미구현으로 빈 배열로 수신합니다.
 
 ### 테스트 시나리오 (E2E)
 
