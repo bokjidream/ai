@@ -1,0 +1,76 @@
+"""신청서 작성 가이드 노드 — application_fields 항목별 텍스트 가이드 생성."""
+
+from pathlib import Path
+
+from langchain_core.messages import AIMessage
+
+from graph.state import AgentState, UserProfile, WelfareCandidate
+from tools.llm import get_llm
+
+_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "draft_writer.txt"
+
+
+def _load_prompt() -> str:
+    return _PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def _format_user_info(profile: UserProfile) -> str:
+    lines = []
+    if profile.age is not None:
+        lines.append(f"- 나이: {profile.age}세")
+    if profile.region is not None:
+        lines.append(f"- 지역: {profile.region}")
+    if profile.income_level is not None:
+        lines.append(f"- 소득 수준: {profile.income_level.value}")
+    if profile.disability is not None:
+        lines.append(f"- 장애 여부: {'있음' if profile.disability else '없음'}")
+    if profile.disability_type is not None:
+        lines.append(f"- 장애 유형: {profile.disability_type}")
+    if profile.disability_grade is not None:
+        lines.append(f"- 장애 등급: {profile.disability_grade}")
+    if profile.household_size is not None:
+        lines.append(f"- 가구원 수: {profile.household_size}명")
+    if profile.employment_status is not None:
+        lines.append(f"- 취업 상태: {profile.employment_status.value}")
+    if profile.housing_type is not None:
+        lines.append(f"- 주거 유형: {profile.housing_type}")
+    if profile.is_veteran is not None:
+        lines.append(f"- 국가유공자: {'해당' if profile.is_veteran else '비해당'}")
+    if profile.is_single_parent is not None:
+        val = "해당" if profile.is_single_parent else "비해당"
+        lines.append(f"- 한부모 가정: {val}")
+    for key, val in profile.extra_fields.items():
+        lines.append(f"- {key}: {val}")
+    return "\n".join(lines) if lines else "수집된 사용자 정보 없음"
+
+
+async def draft_writer_node(state: AgentState) -> dict:
+    """application_fields와 user_profile을 기반으로 신청서 작성 가이드 생성."""
+    selected: WelfareCandidate = state["selected_service"]
+    profile: UserProfile = state["user_profile"]
+
+    if not selected.application_fields:
+        fallback = (
+            f"'{selected.serv_nm}' 신청서 항목 정보가 없습니다. "
+            "해당 기관에 직접 문의하여 신청서를 작성해 주세요."
+        )
+        return {
+            "application_guide": fallback,
+            "messages": [AIMessage(content=fallback)],
+        }
+
+    prompt_template = _load_prompt()
+    prompt = prompt_template.format(
+        serv_nm=selected.serv_nm,
+        application_fields="\n".join(f"- {f}" for f in selected.application_fields),
+        user_info=_format_user_info(profile),
+    )
+
+    llm = get_llm()
+    response = llm.invoke(prompt)
+    guide = response.content
+
+    return {
+        "application_guide": guide,
+        "messages": [AIMessage(content=guide)],
+    }
