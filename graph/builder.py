@@ -5,6 +5,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
+from agents.rag_search import rag_search_node
 from graph.state import AgentState
 
 load_dotenv()
@@ -39,11 +40,6 @@ def route_after_detail_interview(state: AgentState) -> str:
 
 async def initial_interview_node(state: AgentState) -> dict:
     """1단계 인터뷰 stub."""
-    return {}
-
-
-async def rag_search_node(state: AgentState) -> dict:
-    """RAG 후보 검색 stub."""
     return {}
 
 
