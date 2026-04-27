@@ -1,0 +1,104 @@
+"""RAG 검색 노드 — UserProfile로 복지 서비스 후보 목록 조회."""
+
+import os
+
+from langchain_core.messages import AIMessage
+
+import tools.rag_client as rag_client
+from graph.state import AgentState, UserProfile, WelfareCandidate
+from tools.llm import get_llm
+
+
+def _profile_to_dict(profile: UserProfile) -> dict:
+    """UserProfile 최소 필드를 RAG 전송용 flat dict로 변환."""
+    data = {}
+    if profile.age is not None:
+        data["age"] = profile.age
+    if profile.income_level is not None:
+        data["income_level"] = profile.income_level.value
+    if profile.disability is not None:
+        data["disability"] = profile.disability
+    if profile.disability_severity is not None:
+        data["disability_severity"] = profile.disability_severity.value
+    if profile.employment_status is not None:
+        data["employment_status"] = profile.employment_status.value
+    if profile.region is not None:
+        data["region"] = profile.region
+    if profile.is_elderly is not None:
+        data["is_elderly"] = profile.is_elderly
+    return data
+
+
+def _generate_eligibility_reason(
+    llm, serv_nm: str, serv_dgst: str, profile: UserProfile
+) -> str:
+    """서비스 요약과 사용자 프로필을 기반으로 선정 이유를 생성."""
+    prompt = (
+        f"다음 복지 서비스가 이 사용자에게 적합한 이유를 한 문장으로 설명하세요.\n\n"
+        f"서비스명: {serv_nm}\n"
+        f"서비스 요약: {serv_dgst}\n"
+        f"사용자 정보: 나이 {profile.age}세, 지역 {profile.region}, "
+        f"소득수준 {profile.income_level}"
+    )
+    try:
+        response = llm.invoke(prompt)
+        return response.content
+    except Exception:
+        return ""
+
+
+async def rag_search_node(state: AgentState) -> dict:
+    """RAG 후보 검색 노드 — UserProfile → WelfareCandidate 리스트."""
+    profile: UserProfile = state["user_profile"]
+    top_k = int(os.getenv("RAG_SEARCH_TOP_K", "5"))
+
+    # RAG 호출 (1회 재시도)
+    results = None
+    for _ in range(2):
+        try:
+            results = await rag_client.search(
+                profile=_profile_to_dict(profile), top_k=top_k
+            )
+            break
+        except Exception:
+            continue
+
+    if results is None:
+        error_msg = (
+            "죄송합니다. 복지 서비스 검색 중 연결 오류가 발생했습니다. "
+            "잠시 후 다시 시도해 주세요."
+        )
+        return {
+            "welfare_candidates": [],
+            "messages": [AIMessage(content=error_msg)],
+        }
+
+    if not results:
+        no_result_msg = "입력하신 정보로 해당하는 복지 서비스를 찾지 못했습니다."
+        return {
+            "welfare_candidates": [],
+            "messages": [AIMessage(content=no_result_msg)],
+        }
+
+    # score 내림차순 정렬
+    results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+
+    llm = get_llm()
+    candidates = []
+    for priority, item in enumerate(results, start=1):
+        eligibility_reason = _generate_eligibility_reason(
+            llm, item["serv_nm"], item["serv_dgst"], profile
+        )
+        candidates.append(
+            WelfareCandidate(
+                serv_id=item["serv_id"],
+                serv_nm=item["serv_nm"],
+                serv_dgst=item["serv_dgst"],
+                department=item.get("department", ""),
+                score=item.get("score", 0.0),
+                priority=priority,
+                eligibility_reason=eligibility_reason,
+            )
+        )
+
+    return {"welfare_candidates": candidates}
