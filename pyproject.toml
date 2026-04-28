@@ -5,7 +5,7 @@ description = "복지 서비스 자가진단 AI 에이전트"
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=0.4.0",
-    "langchain-google-genai>=2.0.0",
+    "langchain-groq>=1.1.2",
     "langchain-community>=0.3.0",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
