@@ -5,7 +5,7 @@ description = "복지 서비스 자가진단 AI 에이전트"
 requires-python = ">=3.11"
 dependencies = [
     "langgraph>=0.4.0",
-    "langchain-google-genai>=2.0.0",
+    "langchain-groq>=1.1.2",
     "langchain-community>=0.3.0",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
@@ -66,6 +66,7 @@ line-ending = "auto"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = ["integration: 실제 LLM을 호출하는 통합 테스트 (deselect with -m 'not integration')"]
 
 [dependency-groups]
 dev = [

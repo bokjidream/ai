@@ -88,8 +88,8 @@ Response: { "serv_id", "serv_nm", "required_documents", "application_fields", "a
 ## Environment Variables
 
 ```dotenv
-GOOGLE_API_KEY=
-GOOGLE_MODEL=gemini-2.5-flash
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.3-70b-versatile
 GRAPH_CHECKPOINTER=memory
 SQLITE_DB_PATH=./checkpoints.db
 RAG_SERVICE_URL=http://localhost:8000

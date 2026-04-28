@@ -5,9 +5,13 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
+from agents.detail_interview import detail_interview_node
+from agents.document_guidance import document_guidance_node
 from agents.draft_writer import draft_writer_node
+from agents.initial_interview import initial_interview_node
 from agents.rag_detail import rag_detail_node
 from agents.rag_search import rag_search_node
+from agents.report_writer import report_writer_node
 from agents.service_select import service_select_node
 from graph.state import AgentState
 
@@ -36,29 +40,6 @@ def route_after_detail_interview(state: AgentState) -> str:
     if state["detail_missing_fields"]:
         return "detail_interview"
     return "document_guidance"
-
-
-# ── stub 노드 (Phase 2에서 실제 구현으로 교체) ──
-
-
-async def initial_interview_node(state: AgentState) -> dict:
-    """1단계 인터뷰 stub."""
-    return {}
-
-
-async def detail_interview_node(state: AgentState) -> dict:
-    """2단계 인터뷰 stub."""
-    return {}
-
-
-async def document_guidance_node(state: AgentState) -> dict:
-    """서류 안내 stub."""
-    return {}
-
-
-async def report_writer_node(state: AgentState) -> dict:
-    """최종 보고서 stub."""
-    return {}
 
 
 # ── Checkpointer 팩토리 ──
