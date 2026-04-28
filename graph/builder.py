@@ -5,6 +5,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
+from agents.draft_writer import draft_writer_node
+from agents.rag_detail import rag_detail_node
+from agents.rag_search import rag_search_node
+from agents.service_select import service_select_node
 from graph.state import AgentState
 
 load_dotenv()
@@ -42,21 +46,6 @@ async def initial_interview_node(state: AgentState) -> dict:
     return {}
 
 
-async def rag_search_node(state: AgentState) -> dict:
-    """RAG 후보 검색 stub."""
-    return {}
-
-
-async def service_select_node(state: AgentState) -> dict:
-    """서비스 선택 HitL stub."""
-    return {}
-
-
-async def rag_detail_node(state: AgentState) -> dict:
-    """RAG 상세 조회 stub."""
-    return {}
-
-
 async def detail_interview_node(state: AgentState) -> dict:
     """2단계 인터뷰 stub."""
     return {}
@@ -64,11 +53,6 @@ async def detail_interview_node(state: AgentState) -> dict:
 
 async def document_guidance_node(state: AgentState) -> dict:
     """서류 안내 stub."""
-    return {}
-
-
-async def draft_writer_node(state: AgentState) -> dict:
-    """신청서 작성 가이드 stub."""
     return {}
 
 
