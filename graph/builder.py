@@ -11,6 +11,7 @@ from agents.draft_writer import draft_writer_node
 from agents.initial_interview import initial_interview_node
 from agents.rag_detail import rag_detail_node
 from agents.rag_search import rag_search_node
+from agents.report_writer import report_writer_node
 from agents.service_select import service_select_node
 from graph.state import AgentState
 
@@ -39,11 +40,6 @@ def route_after_detail_interview(state: AgentState) -> str:
     if state["detail_missing_fields"]:
         return "detail_interview"
     return "document_guidance"
-
-
-async def report_writer_node(state: AgentState) -> dict:
-    """최종 보고서 stub."""
-    return {}
 
 
 # ── Checkpointer 팩토리 ──
