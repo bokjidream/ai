@@ -5,11 +5,12 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
+from agents.detail_interview import detail_interview_node
 from agents.draft_writer import draft_writer_node
+from agents.initial_interview import initial_interview_node
 from agents.rag_detail import rag_detail_node
 from agents.rag_search import rag_search_node
 from agents.service_select import service_select_node
-from agents.initial_interview import initial_interview_node
 from graph.state import AgentState
 
 load_dotenv()
@@ -40,31 +41,6 @@ def route_after_detail_interview(state: AgentState) -> str:
 
 
 # ── stub 노드 (Phase 2에서 실제 구현으로 교체) ──
-
-
-<<<<<<< HEAD
-async def initial_interview_node(state: AgentState) -> dict:
-    """1단계 인터뷰 stub."""
-=======
-async def rag_search_node(state: AgentState) -> dict:
-    """RAG 후보 검색 stub."""
-    return {}
-
-
-async def service_select_node(state: AgentState) -> dict:
-    """서비스 선택 HitL stub."""
-    return {}
-
-
-async def rag_detail_node(state: AgentState) -> dict:
-    """RAG 상세 조회 stub."""
->>>>>>> 4bf4833 (feat: initial_interview 에이전트 구현)
-    return {}
-
-
-async def detail_interview_node(state: AgentState) -> dict:
-    """2단계 인터뷰 stub."""
-    return {}
 
 
 async def document_guidance_node(state: AgentState) -> dict:
