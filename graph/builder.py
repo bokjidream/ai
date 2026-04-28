@@ -6,6 +6,7 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
 from agents.detail_interview import detail_interview_node
+from agents.document_guidance import document_guidance_node
 from agents.draft_writer import draft_writer_node
 from agents.initial_interview import initial_interview_node
 from agents.rag_detail import rag_detail_node
@@ -38,14 +39,6 @@ def route_after_detail_interview(state: AgentState) -> str:
     if state["detail_missing_fields"]:
         return "detail_interview"
     return "document_guidance"
-
-
-# ── stub 노드 (Phase 2에서 실제 구현으로 교체) ──
-
-
-async def document_guidance_node(state: AgentState) -> dict:
-    """서류 안내 stub."""
-    return {}
 
 
 async def report_writer_node(state: AgentState) -> dict:
