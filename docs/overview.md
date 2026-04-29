@@ -52,7 +52,7 @@
 
 | 분류 | 현재 | 향후 전환 |
 |------|------|-----------|
-| LLM | Google Gemini 2.5 Flash | Ollama (로컬 Llama) |
+| LLM | Groq / llama-3.3-70b-versatile | Ollama (로컬 Llama) |
 | 오케스트레이션 | LangGraph | LangGraph (유지) |
 | LLM 추상화 | LangChain | LangChain (유지) |
 | 벡터 DB | - | ChromaDB (RAG 서비스 via HTTP) |
@@ -139,18 +139,18 @@ RAG 서비스(`rag/`)는 HTTP API로 제공됩니다. AI 에이전트는 두 시
 from enum import Enum
 from pydantic import BaseModel, computed_field
 
-class IncomeLevel(str, Enum):
-    BASIC = "기초수급"        # RAG 팀 필드값 기준으로 통일
-    NEAR_POOR = "차상위"
+class IncomeLevel(StrEnum):
+    BASIC = "기초생활수급자"   # RAG 팀 필드값 기준으로 통일
+    NEAR_POOR = "차상위계층"
     LOW_INCOME = "저소득"
     GENERAL = "일반"
 
-class EmploymentStatus(str, Enum):
+class EmploymentStatus(StrEnum):
     EMPLOYED = "취업"
     UNEMPLOYED = "실업"
     INACTIVE = "비경제활동"
 
-class MaritalStatus(str, Enum):
+class MaritalStatus(StrEnum):
     SINGLE = "미혼"
     MARRIED = "기혼"
     DIVORCED = "이혼"

@@ -2,7 +2,7 @@
 
 > [← 인덱스로 돌아가기](development_plan.md)
 
-**목표:** Google Gemini API 의존성을 제거하고 로컬 Ollama로 전환합니다.
+**목표:** Groq API 의존성을 제거하고 로컬 Ollama로 전환합니다.
 
 **브랜치:** `feat/ollama-migration`
 
@@ -18,5 +18,5 @@
 
 ## 완료 기준
 
-- `GOOGLE_API_KEY` 없이 로컬에서 전체 파이프라인 동작
+- `GROQ_API_KEY` 없이 로컬에서 전체 파이프라인 동작
 - 기존 테스트 코드 수정 없이 CI 통과

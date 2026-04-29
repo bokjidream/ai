@@ -24,7 +24,7 @@ ai/
 │   └── builder.py            # 그래프 빌더 및 조건부 엣지
 ├── tools/
 │   ├── __init__.py
-│   ├── llm.py                # LLM 팩토리 (현재: Gemini, 향후: Ollama)
+│   ├── llm.py                # LLM 팩토리 (현재: Groq, 향후: Ollama)
 │   ├── rag_client.py         # RAG 서비스 HTTP 클라이언트 (Phase 3)
 │   └── prompt_loader.py      # prompts/ 디렉터리 파일 로딩 유틸리티
 ├── prompts/
@@ -36,7 +36,6 @@ ai/
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py               # pytest fixtures (LLM 모킹, RAG 모킹)
-│   ├── test_smoke.py             # 스모크 테스트 (기존)
 │   ├── test_state.py
 │   ├── test_rag_client_stub.py   # RAG 클라이언트 스텁 인터페이스 계약 검증
 │   ├── test_prompts.py           # 프롬프트 파일 로딩 및 키워드 포함 여부 검증
@@ -48,9 +47,9 @@ ai/
 │   ├── test_document_guidance.py
 │   ├── test_draft_writer.py
 │   ├── test_report_writer.py
+│   ├── test_initial_interview_integration.py
 │   ├── test_graph.py
-│   ├── test_rag_integration.py
-│   └── test_e2e.py
+│   └── test_rag_integration.py   # -m integration 마크 필요 (실제 RAG 서버 필요)
 ├── main.py                   # 진입점 (CLI 대화 루프)
 ├── server.py                 # FastAPI 서버 모드 (Phase 5 — Next.js 연동)
 ├── pyproject.toml
@@ -66,7 +65,6 @@ ai/
     ├── agent_specs.md        # 에이전트 노드 상세 명세
     ├── testing.md            # 테스트 전략
     ├── reference.md          # 이 파일
-    └── rag_api_contract.md   # RAG API 계약서 (Phase 2 시작 전 확정)
 ```
 
 ---
@@ -119,9 +117,9 @@ SYSTEM_PROMPT = load_prompt("initial_interview")
 ### 현재 필요한 변수 (`.env`)
 
 ```dotenv
-# Google Gemini (Phase 1~3 사용)
-GOOGLE_API_KEY=your_api_key_here
-GOOGLE_MODEL=gemini-2.5-flash
+# Groq (현재 LLM — Phase 4에서 Ollama로 전환 예정)
+GROQ_API_KEY=your_api_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
 
 # Checkpointer 선택 (memory | sqlite | postgres)
 GRAPH_CHECKPOINTER=memory
