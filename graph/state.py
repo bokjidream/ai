@@ -10,8 +10,8 @@ from typing_extensions import TypedDict
 class IncomeLevel(StrEnum):
     """소득 수준 구분 (RAG 팀 기준 값)."""
 
-    BASIC = "기초수급"
-    NEAR_POOR = "차상위"
+    BASIC = "기초생활수급자"
+    NEAR_POOR = "차상위계층"
     LOW_INCOME = "저소득"
     GENERAL = "일반"
 

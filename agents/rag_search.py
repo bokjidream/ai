@@ -1,5 +1,6 @@
 """RAG 검색 노드 — UserProfile로 복지 서비스 후보 목록 조회."""
 
+import asyncio
 import os
 
 from langchain_core.messages import AIMessage
@@ -24,12 +25,16 @@ def _profile_to_dict(profile: UserProfile) -> dict:
         data["employment_status"] = profile.employment_status.value
     if profile.region is not None:
         data["region"] = profile.region
-    if profile.is_elderly is not None:
-        data["is_elderly"] = profile.is_elderly
+    if profile.household_size is not None:
+        data["household_size"] = profile.household_size
+    if profile.marital_status is not None:
+        data["marital_status"] = profile.marital_status.value
+    if profile.has_children is not None:
+        data["has_children"] = profile.has_children
     return data
 
 
-def _generate_eligibility_reason(
+async def _generate_eligibility_reason(
     llm, serv_nm: str, serv_dgst: str, profile: UserProfile
 ) -> str:
     """서비스 요약과 사용자 프로필을 기반으로 선정 이유를 생성."""
@@ -41,7 +46,7 @@ def _generate_eligibility_reason(
         f"소득수준 {profile.income_level}"
     )
     try:
-        response = llm.invoke(prompt)
+        response = await llm.ainvoke(prompt)
         return response.content
     except Exception:
         return ""
@@ -84,21 +89,30 @@ async def rag_search_node(state: AgentState) -> dict:
     results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
 
     llm = get_llm()
-    candidates = []
-    for priority, item in enumerate(results, start=1):
-        eligibility_reason = _generate_eligibility_reason(
-            llm, item["serv_nm"], item["serv_dgst"], profile
-        )
-        candidates.append(
-            WelfareCandidate(
-                serv_id=item["serv_id"],
-                serv_nm=item["serv_nm"],
-                serv_dgst=item["serv_dgst"],
-                department=item.get("department", ""),
-                score=item.get("score", 0.0),
-                priority=priority,
-                eligibility_reason=eligibility_reason,
+
+    # 후보별 선정 이유를 병렬로 생성
+    reasons = await asyncio.gather(
+        *[
+            _generate_eligibility_reason(
+                llm, item["serv_nm"], item["serv_dgst"], profile
             )
+            for item in results
+        ]
+    )
+
+    candidates = [
+        WelfareCandidate(
+            serv_id=item["serv_id"],
+            serv_nm=item["serv_nm"],
+            serv_dgst=item["serv_dgst"],
+            department=item.get("department", ""),
+            score=item.get("score", 0.0),
+            priority=priority,
+            eligibility_reason=reason,
         )
+        for priority, (item, reason) in enumerate(
+            zip(results, reasons, strict=False), start=1
+        )
+    ]
 
     return {"welfare_candidates": candidates}

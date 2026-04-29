@@ -58,7 +58,7 @@ class TestFormatUserInfo:
         result = _format_user_info(profile)
         assert "65세" in result
         assert "서울" in result
-        assert "기초수급" in result
+        assert "기초생활수급자" in result
 
     def test_excludes_none_fields(self):
         profile = UserProfile(age=40)

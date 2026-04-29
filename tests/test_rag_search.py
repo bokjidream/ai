@@ -59,7 +59,7 @@ class TestProfileToDict:
         profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, region="서울")
         result = _profile_to_dict(profile)
         assert result["age"] == 65
-        assert result["income_level"] == "기초수급"
+        assert result["income_level"] == "기초생활수급자"
         assert result["region"] == "서울"
 
     def test_excludes_none_fields(self):
@@ -68,10 +68,10 @@ class TestProfileToDict:
         assert "income_level" not in result
         assert "disability" not in result
 
-    def test_includes_is_elderly_derived_field(self):
+    def test_excludes_is_elderly_derived_field(self):
         profile = UserProfile(age=65)
         result = _profile_to_dict(profile)
-        assert result["is_elderly"] is True
+        assert "is_elderly" not in result
 
     def test_enum_values_are_strings(self):
         profile = UserProfile(
@@ -80,7 +80,7 @@ class TestProfileToDict:
         )
         result = _profile_to_dict(profile)
         assert result["employment_status"] == "실업"
-        assert result["income_level"] == "차상위"
+        assert result["income_level"] == "차상위계층"
 
 
 class TestRagSearchNode:
@@ -155,7 +155,9 @@ class TestRagSearchNode:
     ):
         mock_search.return_value = _DUMMY_RAG_RESULTS
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="적합한 서비스입니다.")
+        mock_llm.ainvoke = AsyncMock(
+            return_value=MagicMock(content="적합한 서비스입니다.")
+        )
         mock_get_llm.return_value = mock_llm
 
         result = await rag_search_node(_make_state())

@@ -30,7 +30,7 @@ class TestUserProfile:
 
     def test_income_level_enum(self):
         profile = UserProfile(income_level=IncomeLevel.BASIC)
-        assert profile.income_level == "기초수급"
+        assert profile.income_level == "기초생활수급자"
 
     def test_employment_status_enum(self):
         profile = UserProfile(employment_status=EmploymentStatus.UNEMPLOYED)
@@ -63,8 +63,8 @@ class TestUserProfile:
 
     def test_income_level_all_values(self):
         values = [e.value for e in IncomeLevel]
-        assert "기초수급" in values
-        assert "차상위" in values
+        assert "기초생활수급자" in values
+        assert "차상위계층" in values
         assert "저소득" in values
         assert "일반" in values
 
