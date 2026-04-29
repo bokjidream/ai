@@ -82,6 +82,37 @@ class TestProfileToDict:
         assert result["employment_status"] == "실업"
         assert result["income_level"] == "차상위계층"
 
+    def test_includes_household_size(self):
+        profile = UserProfile(household_size=3)
+        result = _profile_to_dict(profile)
+        assert result["household_size"] == 3
+
+    def test_includes_marital_status(self):
+        from graph.state import MaritalStatus
+
+        profile = UserProfile(marital_status=MaritalStatus.SINGLE)
+        result = _profile_to_dict(profile)
+        assert result["marital_status"] == "미혼"
+
+    def test_includes_has_children(self):
+        profile = UserProfile(has_children=True)
+        result = _profile_to_dict(profile)
+        assert result["has_children"] is True
+
+    def test_includes_disability_severity_when_disabled(self):
+        from graph.state import DisabilitySeverity
+
+        profile = UserProfile(
+            disability=True, disability_severity=DisabilitySeverity.SEVERE
+        )
+        result = _profile_to_dict(profile)
+        assert result["disability_severity"] == "중증"
+
+    def test_excludes_disability_severity_when_not_disabled(self):
+        profile = UserProfile(disability=False, disability_severity=None)
+        result = _profile_to_dict(profile)
+        assert "disability_severity" not in result
+
 
 class TestRagSearchNode:
     @patch("agents.rag_search.get_llm")

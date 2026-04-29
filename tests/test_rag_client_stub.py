@@ -1,5 +1,7 @@
 """RAG 클라이언트 단위 테스트 — httpx 응답을 모킹하여 검증."""
 
+import json
+
 import httpx
 import pytest
 from pytest_httpx import HTTPXMock
@@ -37,12 +39,12 @@ def set_rag_url(monkeypatch):
 class TestSearch:
     async def test_returns_list(self, httpx_mock: HTTPXMock):
         httpx_mock.add_response(json=_SEARCH_RESPONSE)
-        result = await search(profile={"age": 65, "income_level": "기초수급"})
+        result = await search(profile={"age": 65, "income_level": "기초생활수급자"})
         assert isinstance(result, list)
 
     async def test_each_item_has_required_fields(self, httpx_mock: HTTPXMock):
         httpx_mock.add_response(json=_SEARCH_RESPONSE)
-        result = await search(profile={"age": 65, "income_level": "기초수급"})
+        result = await search(profile={"age": 65, "income_level": "기초생활수급자"})
         for item in result:
             assert "serv_id" in item
             assert "serv_nm" in item
@@ -71,6 +73,13 @@ class TestSearch:
         httpx_mock.add_response(status_code=500)
         with pytest.raises(httpx.HTTPStatusError):
             await search(profile={"age": 65})
+
+    async def test_top_k_included_in_request_body(self, httpx_mock: HTTPXMock):
+        httpx_mock.add_response(json={"results": []})
+        await search(profile={"age": 65}, top_k=3)
+        request = httpx_mock.get_requests()[0]
+        body = json.loads(request.content)
+        assert body["top_k"] == 3
 
 
 class TestGetDetail:

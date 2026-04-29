@@ -1,6 +1,6 @@
 """신청서 작성 가이드 노드 테스트."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
@@ -82,7 +82,9 @@ class TestDraftWriterNode:
     @patch("agents.draft_writer.get_llm")
     async def test_returns_application_guide_string(self, mock_get_llm):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="1. 신청인 성명: 홍길동")
+        mock_llm.ainvoke = AsyncMock(
+            return_value=MagicMock(content="1. 신청인 성명: 홍길동")
+        )
         mock_get_llm.return_value = mock_llm
 
         result = await draft_writer_node(_make_state())
@@ -92,7 +94,7 @@ class TestDraftWriterNode:
     @patch("agents.draft_writer.get_llm")
     async def test_returns_ai_message(self, mock_get_llm):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="가이드 내용")
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="가이드 내용"))
         mock_get_llm.return_value = mock_llm
 
         result = await draft_writer_node(_make_state())
@@ -113,22 +115,22 @@ class TestDraftWriterNode:
     @patch("agents.draft_writer.get_llm")
     async def test_llm_called_with_service_name(self, mock_get_llm):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="결과")
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="결과"))
         mock_get_llm.return_value = mock_llm
 
         await draft_writer_node(_make_state())
 
-        call_args = mock_llm.invoke.call_args[0][0]
+        call_args = mock_llm.ainvoke.call_args[0][0]
         assert "기초생활수급자 생계급여" in call_args
 
     @patch("agents.draft_writer.get_llm")
     async def test_llm_called_with_user_info(self, mock_get_llm):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="결과")
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="결과"))
         mock_get_llm.return_value = mock_llm
 
         await draft_writer_node(_make_state())
 
-        call_args = mock_llm.invoke.call_args[0][0]
+        call_args = mock_llm.ainvoke.call_args[0][0]
         assert "65세" in call_args
         assert "서울" in call_args
