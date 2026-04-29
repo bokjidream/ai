@@ -60,7 +60,7 @@ async def document_guidance_node(state: AgentState) -> dict:
     )
 
     llm = get_llm()
-    response = llm.invoke(prompt)
+    response = await llm.ainvoke(prompt)
     guidance = response.content
 
     return {

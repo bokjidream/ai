@@ -100,5 +100,5 @@ class TestServiceSelectNode:
         await service_select_node(_make_state())
 
         # 두 번째 interrupt 호출 시 error 포함 확인
-        second_call_kwargs = mock_interrupt.call_args_list[1][1]
+        second_call_kwargs = mock_interrupt.call_args_list[1].kwargs
         assert second_call_kwargs["value"]["error"] is not None

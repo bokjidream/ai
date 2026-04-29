@@ -1,6 +1,6 @@
 """최종 보고서 에이전트 테스트."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage
 
@@ -60,7 +60,7 @@ class TestReportWriterNode:
     async def test_returns_final_report_string(self, mock_get_llm):
         expected = "## 기초생활수급자 생계급여 신청 안내\n\n### 준비 서류\n..."
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content=expected)
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=expected))
         mock_get_llm.return_value = mock_llm
 
         result = await report_writer_node(_make_state())
@@ -70,7 +70,7 @@ class TestReportWriterNode:
     @patch("agents.report_writer.get_llm")
     async def test_returns_ai_message(self, mock_get_llm):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="보고서 내용")
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="보고서 내용"))
         mock_get_llm.return_value = mock_llm
 
         result = await report_writer_node(_make_state())
@@ -91,18 +91,18 @@ class TestReportWriterNode:
     @patch("agents.report_writer.get_llm")
     async def test_llm_called_with_service_name(self, mock_get_llm):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="결과")
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="결과"))
         mock_get_llm.return_value = mock_llm
 
         await report_writer_node(_make_state())
 
-        call_args = mock_llm.invoke.call_args[0][0]
+        call_args = mock_llm.ainvoke.call_args[0][0]
         assert "기초생활수급자 생계급여" in call_args
 
     @patch("agents.report_writer.get_llm")
     async def test_llm_called_with_guides(self, mock_get_llm):
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="결과")
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="결과"))
         mock_get_llm.return_value = mock_llm
 
         state = _make_state(
@@ -111,6 +111,6 @@ class TestReportWriterNode:
         )
         await report_writer_node(state)
 
-        call_args = mock_llm.invoke.call_args[0][0]
+        call_args = mock_llm.ainvoke.call_args[0][0]
         assert "서류 안내 텍스트" in call_args
         assert "신청서 작성 가이드 텍스트" in call_args

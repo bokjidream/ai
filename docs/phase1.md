@@ -30,7 +30,7 @@
 - `AgentState` 모델 정의 완료 및 Pydantic 검증 통과
 - 그래프가 START → END까지 오류 없이 컴파일됨
 - Checkpointer를 붙인 상태에서 `interrupt()` 호출 후 재개 동작 확인
-- Phase 1 범위 테스트 통과: `uv run pytest tests/test_smoke.py tests/test_state.py tests/test_graph.py -v`
+- Phase 1 범위 테스트 통과: `uv run pytest tests/test_state.py tests/test_graph.py -v`
   (Phase 2 이후 테스트는 해당 Phase 완료 기준에서 별도로 검증)
 
 > **RAG API 계약 (`docs/rag_api_contract.md`) 작성은 Phase 2 시작 전까지 완료하면 됩니다.** Phase 2 2-0의 RAG 클라이언트 스텁 인터페이스가 이 계약서를 기준으로 구현되어야 하므로, `feat/rag-client-stub` 브랜치 시작 전 `rag/` 파트와 협의하여 확정합니다.

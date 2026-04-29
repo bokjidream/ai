@@ -32,7 +32,7 @@ prompts/ *.txt   tests/       main.py        server.py
 
 ## Data Models (`graph/state.py`)
 
-**Enums (StrEnum):** `IncomeLevel` (`기초수급`/`차상위`/`저소득`/`일반`) · `EmploymentStatus` (`취업`/`실업`/`비경제활동`) · `MaritalStatus` (`미혼`/`기혼`/`이혼`/`사별`) · `DisabilitySeverity` (`경증`/`중증`)
+**Enums (StrEnum):** `IncomeLevel` (`기초생활수급자`/`차상위계층`/`저소득`/`일반`) · `EmploymentStatus` (`취업`/`실업`/`비경제활동`) · `MaritalStatus` (`미혼`/`기혼`/`이혼`/`사별`) · `DisabilitySeverity` (`경증`/`중증`)
 
 **`UserProfile`** (Pydantic BaseModel)
 - Step-1: `age`, `region`, `household_size`, `marital_status`, `has_children`, `disability`, `employment_status`, `income_level`
@@ -63,13 +63,13 @@ final_report: str
 
 ```
 POST /welfare/search
-Body:  { "age": 65, "income_level": "기초수급", "gender": "여성", ... }  # flat JSON, no wrapper
-Response: [{ "serv_id", "serv_nm", "serv_dgst", "department", "score" }, ...]
+Body:  { "age": 65, "income_level": "기초생활수급자", "top_k": 5, ... }  # flat JSON, top_k in body
+Response: { "results": [{ "serv_id", "serv_nm", "serv_dgst", "department", "score" }, ...] }
 
 GET /welfare/{serv_id}
 Response: { "serv_id", "serv_nm", "required_documents", "application_fields", "application_url", ... }
 ```
-- Empty `[]` from search → pipeline ends, no LLM fallback
+- Empty search → HTTP 200 + `{"results": []}` → pipeline ends, no LLM fallback
 - `eligibility_reason` is NOT in RAG response — LLM generates it from `serv_dgst`
 - `required_documents` / `application_fields` currently return `[]` (RAG not yet implemented)
 
@@ -99,5 +99,6 @@ RAG_SEARCH_TOP_K=5
 ## Testing
 
 `asyncio_mode = "auto"`. Mock fixtures in `tests/conftest.py`:
-- `mock_llm`: `llm.invoke.return_value.content = "모킹된 응답"`
+- `mock_llm`: `llm.ainvoke = AsyncMock(return_value=MagicMock(content="모킹된 응답"))` — all agent nodes use `await llm.ainvoke()`
 - `mock_rag_client`: `serv_id`/`serv_nm`/`serv_dgst` are required — include all three in mock data
+- `load_dotenv()` called at top of `conftest.py` — required for `RAG_SERVICE_URL` in integration tests

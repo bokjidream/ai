@@ -37,7 +37,7 @@ async def report_writer_node(state: AgentState) -> dict:
     )
 
     llm = get_llm()
-    response = llm.invoke(prompt)
+    response = await llm.ainvoke(prompt)
     report = response.content
 
     return {

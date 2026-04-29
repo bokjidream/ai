@@ -99,9 +99,9 @@ def route_after_rag_search(state: AgentState) -> str:
 
 | 작업 | 설명 |
 |------|------|
-| 상세 조회 구현 | `selected_service.service_id`로 RAG 상세 정보 조회 |
+| 상세 조회 구현 | `selected_service.serv_id`로 RAG 상세 정보 조회 |
 | 상태 업데이트 | `selected_service`의 `required_documents`, `application_url` 등 상세 필드 채우기 |
-| `detail_missing_fields` 계산 | RAG에서 반환된 자격 요건(`eligibility`)을 LLM에 전달하여 현재 `user_profile`에서 부족한 필드 목록을 추론 (structured output으로 `list[str]` 반환) |
+| `detail_missing_fields` 계산 | `serv_dgst` 및 `required_documents` 등 RAG 응답 정보를 LLM에 전달하여 현재 `user_profile`에서 부족한 필드 목록을 추론 (structured output으로 `list[str]` 반환) |
 | **HTTP 장애 처리** | 네트워크 오류 시 "상세 정보 조회 실패" 안내 후 그래프 종료 |
 | 테스트 | `tests/test_rag_detail.py` (HTTP 오류 시나리오 포함) |
 
@@ -183,4 +183,4 @@ def route_after_detail_interview(state: AgentState) -> str:
 - 8개 노드 모두 `AgentState`를 입력받아 올바른 상태 업데이트 반환
 - 1단계 및 2단계 인터뷰 재진입 루프가 정상 동작
 - RAG 결과 없음 시 파이프라인이 적절히 종료됨
-- 전체 파이프라인 E2E 테스트 통과 (`tests/test_e2e.py`)
+- 전체 파이프라인 E2E 테스트 통과 (미구현 — 향후 추가 예정)

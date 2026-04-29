@@ -18,48 +18,46 @@
 
 ## RAG API 계약
 
-> **확정 스펙 (2026-04-20 rag/ 팀 PR #7 기준):** 엔드포인트 경로 및 메서드가 아래와 같이 확정되었습니다.
+> **확정 스펙 (2026-04-29 RAG 팀 대면 확인):** 초기 계획과 다르게 실제 구현된 스펙입니다.
 
 ```
-# 1차: 후보 목록 검색 — AI는 JSON을 전송, 자연어 변환은 RAG 내부에서 처리
+# 1차: 후보 목록 검색
 POST /welfare/search
-Body: {
-  "profile": {
-    "age": 65,
-    "income_level": "기초생활수급자",
-    "disability": false,
-    "employment_status": "비경제활동",
-    "region": "서울"
-  },
+Body: {                              # profile 래퍼 없이 flat JSON, top_k도 같은 레벨에 포함
+  "age": 65,
+  "income_level": "기초생활수급자",
+  "disability": false,
+  "employment_status": "비경제활동",
+  "region": "서울",
   "top_k": 5
 }
-Response: [
-  {
-    "id": "welfare_001",
-    "name": "기초연금",
-    "department": "보건복지부",          # WelfareCandidate.department
-    "summary": "만 65세 이상 저소득 노인 연금",
-    "eligibility_reason": "나이 65세 이상, 기초생활수급자 조건 충족",  # WelfareCandidate.eligibility_reason
-    "score": 0.92                         # WelfareCandidate.score → priority로 변환
-  },
-  ...
-]
-# 결과 없으면: []  (LLM 폴백 없음 — 빈 목록 그대로 반환)
+Response: {
+  "results": [                       # 배열 직접 반환이 아닌 results 키로 감쌈
+    {
+      "serv_id": "WLF-001",          # id → serv_id
+      "serv_nm": "기초연금",          # name → serv_nm
+      "serv_dgst": "만 65세 이상 저소득 노인 연금",  # summary → serv_dgst
+      "department": "보건복지부",
+      "score": 0.92                  # 항상 float
+    },
+    ...
+  ]
+}
+# 결과 없으면: HTTP 200 + {"results": []}  (LLM 폴백 없음)
+# eligibility_reason은 RAG 응답에 없음 — AI가 serv_dgst 기반으로 LLM 생성
 
-# 2차: 상세 정보 조회 — 서비스 ID를 경로 파라미터로 조회 (POST → GET 변경)
+# 2차: 상세 정보 조회
 GET /welfare/{serv_id}
 Response: {
-  "id": "welfare_001",
-  "name": "기초연금",
-  "department": "보건복지부",
-  "eligibility": { ... },
-  "application_fields": ["신청인 성명", "생년월일", "소득 수준", ...],  # draft_writer 필수 의존
-  "required_documents": ["신분증", "통장사본", ...],
+  "serv_id": "WLF-001",
+  "serv_nm": "기초연금",
+  "required_documents": ["신분증", "통장사본", ...],  # 현재 [] 반환 (RAG 미구현)
+  "application_fields": ["신청인 성명", "생년월일", ...],  # 현재 [] 반환 (RAG 미구현)
   "application_url": "https://www.bokjiro.go.kr"
 }
 ```
 
-> **필드 책임 분리:** `eligibility_reason`과 `department`는 RAG `/search` 응답에 포함해야 합니다. `application_fields`는 RAG `/services/detail` 응답에 반드시 포함해야 합니다. 두 필드 모두 `rag/` 파트에서 제공하지 않으면 `WelfareCandidate` 모델이 제대로 채워지지 않습니다.
+> **필드 책임 분리:** `eligibility_reason`과 `department`는 RAG 응답이 아닌 AI 레이어에서 처리합니다. `eligibility_reason`은 LLM이 `serv_dgst` 기반으로 생성, `department`는 RAG 응답에 포함됩니다.
 
 ## 완료 기준
 
