@@ -103,3 +103,7 @@ class AgentState(TypedDict):
     document_guidance: str
     application_guide: str
     final_report: str
+    # 1단계 인터뷰 재질문 추적 (hwnv_client re_ask 흐름용)
+    interview_current_field: str | None  # 현재 처리 중인 필드 (None=새 필드)
+    interview_last_question: str  # 직전 봇 질문 (re_ask pre_assistant_message)
+    interview_last_answer: str  # 직전 사용자 답변 (re_ask pre_user_message)
