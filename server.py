@@ -1,0 +1,156 @@
+"""복지드림 AI 에이전트 FastAPI 서버."""
+
+from __future__ import annotations
+
+import uuid
+
+from dotenv import load_dotenv
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from langgraph.types import Command
+from pydantic import BaseModel
+
+from graph.builder import graph  # builder.py 내부에서 load_dotenv() 호출
+from graph.state import UserProfile, WelfareCandidate
+
+load_dotenv()
+
+app = FastAPI(title="BokjiDream AI Server")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_methods=["POST"],
+    allow_headers=["Content-Type"],
+)
+
+
+class ChatResponse(BaseModel):
+    """AI 서버 응답 공통 래퍼."""
+
+    thread_id: str
+    type: str
+    data: dict
+
+
+class MessageRequest(BaseModel):
+    """POST /chat/message 요청 바디."""
+
+    thread_id: str
+    message: str
+
+
+def _initial_state() -> dict:
+    return {
+        "messages": [],
+        "user_profile": UserProfile(),
+        "initial_missing_fields": [
+            "age",
+            "region",
+            "household_size",
+            "marital_status",
+            "has_children",
+            "disability",
+            "employment_status",
+            "income_level",
+        ],
+        "welfare_candidates": [],
+        "selected_service": None,
+        "detail_missing_fields": [],
+        "document_guidance": "",
+        "application_guide": "",
+        "final_report": "",
+        "interview_current_field": None,
+        "interview_last_question": "",
+        "interview_last_answer": "",
+    }
+
+
+def _interview_response(thread_id: str, interrupt_value: dict, state) -> ChatResponse:
+    missing = (
+        state.values.get("initial_missing_fields")
+        or state.values.get("detail_missing_fields")
+        or []
+    )
+    return ChatResponse(
+        thread_id=thread_id,
+        type="interview",
+        data={"question": interrupt_value["question"], "missing_fields": missing},
+    )
+
+
+def _service_select_response(
+    thread_id: str, interrupt_value: dict, state
+) -> ChatResponse:
+    candidates: list[WelfareCandidate] = state.values.get("welfare_candidates", [])
+    return ChatResponse(
+        thread_id=thread_id,
+        type="service_select",
+        data={
+            "candidates": interrupt_value["candidates"],
+            "welfare_candidates": [c.model_dump() for c in candidates],
+            "error": interrupt_value.get("error"),
+        },
+    )
+
+
+def _done_response(thread_id: str, state) -> ChatResponse:
+    selected: WelfareCandidate | None = state.values.get("selected_service")
+    candidates: list[WelfareCandidate] = state.values.get("welfare_candidates", [])
+    return ChatResponse(
+        thread_id=thread_id,
+        type="done",
+        data={
+            "final_report": state.values.get("final_report", ""),
+            "document_guidance": state.values.get("document_guidance", ""),
+            "application_guide": state.values.get("application_guide", ""),
+            "selected_service": selected.model_dump() if selected else None,
+            "welfare_candidates": [c.model_dump() for c in candidates],
+        },
+    )
+
+
+async def _run_until_interrupt(
+    thread_id: str,
+    input_: dict | Command,
+    config: dict,
+) -> ChatResponse:
+    async for chunk in graph.astream(input_, config, stream_mode="updates"):
+        if "__interrupt__" in chunk:
+            interrupt_value = chunk["__interrupt__"][0].value
+            state = await graph.aget_state(config)
+            if "question" in interrupt_value:
+                return _interview_response(thread_id, interrupt_value, state)
+            if "candidates" in interrupt_value:
+                return _service_select_response(thread_id, interrupt_value, state)
+
+    state = await graph.aget_state(config)
+    if not state.values.get("welfare_candidates"):
+        return ChatResponse(thread_id=thread_id, type="no_results", data={})
+    return _done_response(thread_id, state)
+
+
+@app.post("/chat/start", response_model=ChatResponse)
+async def chat_start() -> ChatResponse:
+    """새 세션을 시작하고 첫 번째 인터뷰 질문을 반환합니다."""
+    thread_id = str(uuid.uuid4())
+    config = {"configurable": {"thread_id": thread_id}}
+    try:
+        return await _run_until_interrupt(thread_id, _initial_state(), config)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@app.post("/chat/message", response_model=ChatResponse)
+async def chat_message(body: MessageRequest) -> ChatResponse:
+    """사용자 메시지를 받아 그래프를 재개하고 다음 상태를 반환합니다."""
+    config = {"configurable": {"thread_id": body.thread_id}}
+    state = await graph.aget_state(config)
+    if not state.values:
+        raise HTTPException(status_code=404, detail="thread_id를 찾을 수 없습니다.")
+    try:
+        return await _run_until_interrupt(
+            body.thread_id, Command(resume=body.message), config
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
