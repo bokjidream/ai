@@ -32,6 +32,9 @@ def run():
         "document_guidance": "",
         "application_guide": "",
         "final_report": "",
+        "interview_current_field": None,
+        "interview_last_question": "",
+        "interview_last_answer": "",
     }
 
     result = graph.invoke(initial_state, config)

@@ -1,16 +1,15 @@
 """1단계 인터뷰 에이전트 테스트."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agents.initial_interview import (
-    _extract_profile,
-    _generate_question,
-    _ProfileExtraction,
+    _apply_value,
+    _update_missing,
     initial_interview_node,
 )
-from graph.state import DisabilitySeverity, UserProfile
+from graph.state import DisabilitySeverity, MaritalStatus, UserProfile
 
 
 def _base_state(**overrides) -> dict:
@@ -30,6 +29,9 @@ def _base_state(**overrides) -> dict:
         "document_guidance": "",
         "application_guide": "",
         "final_report": "",
+        "interview_current_field": None,
+        "interview_last_question": "",
+        "interview_last_answer": "",
     }
     state.update(overrides)
     return state
@@ -41,36 +43,61 @@ class TestInitialInterviewNodeBasic:
         result = await initial_interview_node(state)
         assert result == {}
 
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
     @patch("agents.initial_interview.interrupt", return_value="저는 40살이에요")
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
-    async def test_interrupts_with_question(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
+    async def test_first_call_uses_reask_false(
+        self, mock_interrupt, mock_ask, mock_extract
     ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_ProfileExtraction(age=40)
-        )
+        mock_ask.return_value = "나이가 어떻게 되세요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": 40,
+            "re_ask": False,
+            "reasoning": "",
+        }
 
         state = _base_state(initial_missing_fields=["age"])
         await initial_interview_node(state)
 
-        mock_interrupt.assert_called_once()
-        call_args = mock_interrupt.call_args[0][0]
-        assert "question" in call_args
-        assert "missing_fields" in call_args
-        assert "age" in call_args["missing_fields"]
-
-    @patch("agents.initial_interview.interrupt", return_value="저는 40살이에요")
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
-    async def test_messages_contain_ai_and_human(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_ProfileExtraction(age=40)
+        mock_ask.assert_called_once_with(
+            field="age", re_ask=False, pre_assistant_message="", pre_user_message=""
         )
+
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
+    @patch("agents.initial_interview.interrupt", return_value="저는 40살이에요")
+    async def test_interrupts_with_question_and_field(
+        self, mock_interrupt, mock_ask, mock_extract
+    ):
+        mock_ask.return_value = "나이가 어떻게 되세요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": 40,
+            "re_ask": False,
+            "reasoning": "",
+        }
+
+        state = _base_state(initial_missing_fields=["age"])
+        await initial_interview_node(state)
+
+        call_args = mock_interrupt.call_args[0][0]
+        assert call_args["question"] == "나이가 어떻게 되세요?"
+        assert call_args["field"] == "age"
+
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
+    @patch("agents.initial_interview.interrupt", return_value="저는 40살이에요")
+    async def test_messages_contain_ai_and_human(
+        self, mock_interrupt, mock_ask, mock_extract
+    ):
+        mock_ask.return_value = "나이가 어떻게 되세요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": 40,
+            "re_ask": False,
+            "reasoning": "",
+        }
 
         state = _base_state(initial_missing_fields=["age"])
         result = await initial_interview_node(state)
@@ -84,70 +111,157 @@ class TestInitialInterviewNodeBasic:
 
 
 class TestInitialInterviewNodeExtraction:
-    @patch("agents.initial_interview.interrupt", return_value="서울, 40살")
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
-    async def test_extracted_fields_removed_from_missing(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
+    @patch("agents.initial_interview.interrupt", return_value="40살이에요")
+    async def test_extracted_field_removed_from_missing(
+        self, mock_interrupt, mock_ask, mock_extract
     ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_ProfileExtraction(age=40, region="서울")
-        )
+        mock_ask.return_value = "나이가 어떻게 되세요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": 40,
+            "re_ask": False,
+            "reasoning": "",
+        }
 
         state = _base_state(initial_missing_fields=["age", "region", "income_level"])
         result = await initial_interview_node(state)
 
         assert "age" not in result["initial_missing_fields"]
-        assert "region" not in result["initial_missing_fields"]
+        assert "region" in result["initial_missing_fields"]
         assert "income_level" in result["initial_missing_fields"]
 
-    @patch("agents.initial_interview.interrupt", return_value="서울, 40살")
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
-    async def test_profile_updated_with_extracted_fields(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
+    @patch("agents.initial_interview.interrupt", return_value="40살이에요")
+    async def test_profile_updated_with_extracted_value(
+        self, mock_interrupt, mock_ask, mock_extract
     ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_ProfileExtraction(age=40, region="서울")
-        )
+        mock_ask.return_value = "나이가 어떻게 되세요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": 40,
+            "re_ask": False,
+            "reasoning": "",
+        }
+
+        state = _base_state(initial_missing_fields=["age"])
+        result = await initial_interview_node(state)
+
+        assert result["user_profile"].age == 40
+
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
+    @patch("agents.initial_interview.interrupt", return_value="잘 모르겠어요")
+    async def test_extraction_failure_keeps_missing_and_sets_current_field(
+        self, mock_interrupt, mock_ask, mock_extract
+    ):
+        mock_ask.return_value = "나이가 어떻게 되세요?"
+        mock_extract.return_value = {
+            "exist": False,
+            "value": None,
+            "re_ask": True,
+            "reasoning": "불명확",
+        }
 
         state = _base_state(initial_missing_fields=["age", "region"])
         result = await initial_interview_node(state)
 
-        profile = result["user_profile"]
-        assert profile.age == 40
-        assert profile.region == "서울"
+        assert "age" in result["initial_missing_fields"]
+        assert result["interview_current_field"] == "age"
+        assert result["interview_last_question"] == "나이가 어떻게 되세요?"
+        assert result["interview_last_answer"] == "잘 모르겠어요"
+
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
+    @patch("agents.initial_interview.interrupt", return_value="스물여섯이요")
+    async def test_reask_entry_uses_reask_true_with_pre_messages(
+        self, mock_interrupt, mock_ask, mock_extract
+    ):
+        mock_ask.return_value = "조금 더 구체적으로 말씀해주실 수 있나요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": 26,
+            "re_ask": False,
+            "reasoning": "",
+        }
+
+        state = _base_state(
+            initial_missing_fields=["age"],
+            interview_current_field="age",
+            interview_last_question="나이가 어떻게 되세요?",
+            interview_last_answer="잘 모르겠어요",
+        )
+        await initial_interview_node(state)
+
+        mock_ask.assert_called_once_with(
+            field="age",
+            re_ask=True,
+            pre_assistant_message="나이가 어떻게 되세요?",
+            pre_user_message="잘 모르겠어요",
+        )
+
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
+    @patch("agents.initial_interview.interrupt", return_value="26살이요")
+    async def test_successful_reask_clears_tracking_fields(
+        self, mock_interrupt, mock_ask, mock_extract
+    ):
+        mock_ask.return_value = "나이를 숫자로 말씀해주세요."
+        mock_extract.return_value = {
+            "exist": True,
+            "value": 26,
+            "re_ask": False,
+            "reasoning": "",
+        }
+
+        state = _base_state(
+            initial_missing_fields=["age"],
+            interview_current_field="age",
+            interview_last_question="나이가 어떻게 되세요?",
+            interview_last_answer="잘 모르겠어요",
+        )
+        result = await initial_interview_node(state)
+
+        assert result["interview_current_field"] is None
+        assert result["interview_last_question"] == ""
+        assert result["interview_last_answer"] == ""
 
 
 class TestDisabilitySeverityHandling:
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
     @patch("agents.initial_interview.interrupt", return_value="장애가 있습니다")
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
     async def test_disability_true_adds_severity_to_missing(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
+        self, mock_interrupt, mock_ask, mock_extract
     ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_ProfileExtraction(disability=True)
-        )
+        mock_ask.return_value = "장애가 있으신가요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": True,
+            "re_ask": False,
+            "reasoning": "",
+        }
 
         state = _base_state(initial_missing_fields=["disability"])
         result = await initial_interview_node(state)
 
         assert "disability_severity" in result["initial_missing_fields"]
 
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
     @patch("agents.initial_interview.interrupt", return_value="장애 없습니다")
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
-    async def test_disability_false_no_severity_in_missing(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
+    async def test_disability_false_removes_severity_from_missing(
+        self, mock_interrupt, mock_ask, mock_extract
     ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_ProfileExtraction(disability=False)
-        )
+        mock_ask.return_value = "장애가 있으신가요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": False,
+            "re_ask": False,
+            "reasoning": "",
+        }
 
         state = _base_state(
             initial_missing_fields=["disability", "disability_severity"]
@@ -156,104 +270,71 @@ class TestDisabilitySeverityHandling:
 
         assert "disability_severity" not in result["initial_missing_fields"]
 
-    @patch("agents.initial_interview.interrupt", return_value="중증 장애입니다")
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
+    @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
+    @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
+    @patch("agents.initial_interview.interrupt", return_value="중증입니다")
     async def test_disability_severity_collected_removes_from_missing(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
+        self, mock_interrupt, mock_ask, mock_extract
     ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_ProfileExtraction(
-                disability=True,
-                disability_severity=DisabilitySeverity.SEVERE,
-            )
-        )
+        mock_ask.return_value = "장애 정도가 어떻게 되세요?"
+        mock_extract.return_value = {
+            "exist": True,
+            "value": "중증",
+            "re_ask": False,
+            "reasoning": "",
+        }
 
-        state = _base_state(initial_missing_fields=["disability_severity"])
+        profile = UserProfile(disability=True)
+        state = _base_state(
+            user_profile=profile,
+            initial_missing_fields=["disability_severity"],
+        )
         result = await initial_interview_node(state)
 
         assert "disability_severity" not in result["initial_missing_fields"]
         assert result["user_profile"].disability_severity == DisabilitySeverity.SEVERE
 
 
-class TestStructuredOutputRetry:
-    async def test_all_fields_remain_on_max_retry_failure(self):
+class TestApplyValue:
+    def test_age_converts_to_int(self):
         profile = UserProfile()
-        missing = ["age", "region"]
+        result = _apply_value(profile, "age", "26")
+        assert result.age == 26
+        assert isinstance(result.age, int)
 
-        with patch("agents.initial_interview.get_llm") as mock_get_llm:
-            mock_llm = MagicMock()
-            mock_extractor = AsyncMock()
-            mock_extractor.ainvoke = AsyncMock(side_effect=Exception("파싱 실패"))
-            mock_llm.with_structured_output.return_value = mock_extractor
-            mock_get_llm.return_value = mock_llm
-
-            new_profile, new_missing = await _extract_profile(
-                profile, missing, "내 답변", []
-            )
-
-        assert new_profile == profile
-        assert new_missing == missing
-
-    async def test_retries_exactly_max_retry_plus_one_times(self):
+    def test_marital_status_converts_to_enum(self):
         profile = UserProfile()
+        result = _apply_value(profile, "marital_status", "미혼")
+        assert result.marital_status == MaritalStatus.SINGLE
 
-        with patch("agents.initial_interview.get_llm") as mock_get_llm:
-            mock_llm = MagicMock()
-            mock_extractor = AsyncMock()
-            mock_extractor.ainvoke = AsyncMock(side_effect=Exception("파싱 실패"))
-            mock_llm.with_structured_output.return_value = mock_extractor
-            mock_get_llm.return_value = mock_llm
-
-            await _extract_profile(profile, ["age"], "내 답변", [])
-
-            assert mock_extractor.ainvoke.call_count == 3  # 1 + _MAX_RETRY(2)
-
-    async def test_succeeds_on_second_attempt(self):
+    def test_disability_converts_to_bool(self):
         profile = UserProfile()
-        missing = ["age"]
-
-        with patch("agents.initial_interview.get_llm") as mock_get_llm:
-            mock_llm = MagicMock()
-            mock_extractor = AsyncMock()
-            mock_extractor.ainvoke = AsyncMock(
-                side_effect=[Exception("1차 실패"), _ProfileExtraction(age=55)]
-            )
-            mock_llm.with_structured_output.return_value = mock_extractor
-            mock_get_llm.return_value = mock_llm
-
-            new_profile, new_missing = await _extract_profile(
-                profile, missing, "55살", []
-            )
-
-        assert new_profile.age == 55
-        assert "age" not in new_missing
+        result = _apply_value(profile, "disability", True)
+        assert result.disability is True
 
 
-class TestGenerateQuestion:
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
-    async def test_returns_llm_content(self, mock_get_llm, mock_load_prompt, mock_llm):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.ainvoke = AsyncMock(
-            return_value=MagicMock(content="나이가 어떻게 되세요?")
+class TestUpdateMissing:
+    def test_removes_collected_field(self):
+        profile = UserProfile()
+        result = _update_missing("age", profile, ["age", "region"])
+        assert "age" not in result
+        assert "region" in result
+
+    def test_disability_false_removes_severity(self):
+        profile = UserProfile(disability=False)
+        result = _update_missing(
+            "disability", profile, ["disability", "disability_severity"]
         )
+        assert "disability_severity" not in result
 
-        question = await _generate_question(UserProfile(), ["age"], [])
+    def test_disability_true_adds_severity_if_absent(self):
+        profile = UserProfile(disability=True)
+        result = _update_missing("disability", profile, ["disability"])
+        assert "disability_severity" in result
 
-        assert question == "나이가 어떻게 되세요?"
-
-    @patch("agents.initial_interview.load_prompt", return_value="system prompt")
-    @patch("agents.initial_interview.get_llm")
-    async def test_history_included_in_messages(
-        self, mock_get_llm, mock_load_prompt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="질문"))
-
-        history = [HumanMessage(content="안녕하세요"), AIMessage(content="안녕하세요!")]
-        await _generate_question(UserProfile(), ["age"], history)
-
-        call_messages = mock_llm.ainvoke.call_args[0][0]
-        assert any(m.content == "안녕하세요" for m in call_messages)
+    def test_disability_true_no_duplicate_severity(self):
+        profile = UserProfile(disability=True)
+        result = _update_missing(
+            "disability", profile, ["disability", "disability_severity"]
+        )
+        assert result.count("disability_severity") == 1

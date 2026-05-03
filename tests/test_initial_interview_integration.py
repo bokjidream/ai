@@ -1,10 +1,10 @@
-"""실제 LLM을 호출하는 통합 테스트. 실행: uv run pytest -s -m integration."""
+"""실제 hwnv.cloud API를 호출하는 통합 테스트. 실행: uv run pytest -s -m integration."""
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
 
-from agents.initial_interview import _extract_profile, _generate_question
+from agents.initial_interview import _apply_value, _update_missing
 from graph.state import UserProfile
+from tools import hwnv_client
 
 # 라운드별 사용자 답변 시나리오 (순서대로 소진)
 _USER_ANSWERS = [
@@ -30,7 +30,6 @@ class TestFullInterviewFlow:
             "employment_status",
             "income_level",
         ]
-        history = []
         answers = list(_USER_ANSWERS)
         round_num = 0
 
@@ -40,9 +39,10 @@ class TestFullInterviewFlow:
 
         while missing:
             round_num += 1
-            print(f"\n[라운드 {round_num}] 남은 필드: {missing}")
+            field = missing[0]
+            print(f"\n[라운드 {round_num}] 남은 필드: {missing}, 현재 필드: {field}")
 
-            question = await _generate_question(profile, missing, history)
+            question = await hwnv_client.ask_question(field=field, re_ask=False)
             print(f"AI  : {question}")
 
             if not answers:
@@ -52,13 +52,12 @@ class TestFullInterviewFlow:
             user_answer = answers.pop(0)
             print(f"사용자: {user_answer}")
 
-            ai_msg = AIMessage(content=question)
-            human_msg = HumanMessage(content=user_answer)
+            result = await hwnv_client.extract_value(field, question, user_answer)
+            print(f"추출 결과: {result}")
 
-            profile, missing = await _extract_profile(
-                profile, missing, user_answer, history + [ai_msg]
-            )
-            history.extend([ai_msg, human_msg])
+            if result.get("exist"):
+                profile = _apply_value(profile, field, result["value"])
+                missing = _update_missing(field, profile, missing)
 
         print("\n" + "=" * 60)
         print(f"최종 프로필: {profile.model_dump(exclude_none=True)}")
