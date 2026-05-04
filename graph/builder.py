@@ -1,4 +1,5 @@
 import os
+from contextlib import AsyncExitStack
 
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
@@ -16,6 +17,9 @@ from agents.service_select import service_select_node
 from graph.state import AgentState
 
 load_dotenv()
+
+# SQLite 모드일 때 커넥션 수명을 앱과 동일하게 유지하기 위한 스택
+_checkpointer_stack: AsyncExitStack | None = None
 
 
 # ── 조건부 엣지 함수 ──
@@ -42,30 +46,17 @@ def route_after_detail_interview(state: AgentState) -> str:
     return "document_guidance"
 
 
-# ── Checkpointer 팩토리 ──
-
-
-def _build_checkpointer():
-    """환경변수 GRAPH_CHECKPOINTER에 따라 checkpointer를 반환합니다."""
-    mode = os.getenv("GRAPH_CHECKPOINTER", "memory")
-
-    if mode == "sqlite":
-        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
-        db_path = os.getenv("SQLITE_DB_PATH", "./checkpoints.db")
-        return AsyncSqliteSaver.from_conn_string(db_path)
-
-    if mode == "postgres":
-        raise NotImplementedError("Postgres checkpointer is not configured yet.")
-
-    return MemorySaver()
-
-
 # ── 그래프 빌더 ──
 
 
-def build_graph():
-    """StateGraph를 조립하여 컴파일된 그래프를 반환합니다."""
+async def build_graph():
+    """StateGraph를 조립하여 컴파일된 그래프를 반환합니다.
+
+    SQLite 모드: AsyncSqliteSaver를 AsyncExitStack으로 열어 앱 수명 동안 유지.
+    Memory 모드: MemorySaver를 사용 (동기, 기본값).
+    """
+    global _checkpointer_stack
+
     builder = StateGraph(AgentState)
 
     # 노드 등록
@@ -89,8 +80,21 @@ def build_graph():
     builder.add_edge("draft_writer", "report_writer")
     builder.add_edge("report_writer", END)
 
-    checkpointer = _build_checkpointer()
-    return builder.compile(checkpointer=checkpointer)
+    mode = os.getenv("GRAPH_CHECKPOINTER", "memory")
 
+    if mode == "sqlite":
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-graph = build_graph()
+        db_path = os.getenv("SQLITE_DB_PATH", "./checkpoints.db")
+        _checkpointer_stack = AsyncExitStack()
+        # enter_async_context: context manager를 "열어둔 채로" 스택에 등록
+        # 스택이 살아있는 한 DB 커넥션이 유지됨
+        checkpointer = await _checkpointer_stack.enter_async_context(
+            AsyncSqliteSaver.from_conn_string(db_path)
+        )
+        return builder.compile(checkpointer=checkpointer)
+
+    if mode == "postgres":
+        raise NotImplementedError("Postgres checkpointer is not configured yet.")
+
+    return builder.compile(checkpointer=MemorySaver())
