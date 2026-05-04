@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -25,7 +26,9 @@ _FIELD_LABELS: dict[str, str] = {
     "is_single_parent": "한부모 가정 여부",
 }
 
-_MAX_RETRY = 2
+_MAX_RETRY = int(os.getenv("LLM_MAX_RETRY", "2"))
+_HISTORY_WINDOW = int(os.getenv("HISTORY_WINDOW_SIZE", "10"))
+_RETRY_MSG = "이해하지 못했습니다. 좀 더 구체적으로 말씀해주시겠어요?"
 
 
 class _DetailExtraction(BaseModel):
@@ -79,10 +82,12 @@ async def _extract_profile(
     missing: list[str],
     user_answer: str,
     history: list,
-) -> tuple[UserProfile, list[str]]:
-    """사용자 답변에서 2단계 프로필 필드를 추출합니다. 실패 시 최대 2회 재시도.
+) -> tuple[UserProfile, list[str], bool]:
+    """사용자 답변에서 2단계 프로필 필드를 추출합니다.
 
-    파싱 실패가 모든 재시도에서 발생하면 기존 profile과 missing을 그대로 반환합니다.
+    실패 시 최대 LLM_MAX_RETRY회 재시도.
+    반환값: (profile, missing, extraction_failed)
+    - extraction_failed=True: 모든 재시도 소진, 기존 profile/missing 유지
     "extra:KEY" 접두사 필드는 user_profile.extra_fields에 저장합니다.
     """
     regular_missing = [f for f in missing if not f.startswith("extra:")]
@@ -110,7 +115,7 @@ async def _extract_profile(
             continue
 
     if extraction is None:
-        return profile, missing
+        return profile, missing, True
 
     # 일반 필드 업데이트
     regular_updates = {
@@ -134,7 +139,7 @@ async def _extract_profile(
         if key not in new_profile.extra_fields:
             new_missing.append(f"extra:{key}")
 
-    return new_profile, new_missing
+    return new_profile, new_missing, False
 
 
 async def detail_interview_node(state: AgentState) -> dict:
@@ -146,22 +151,26 @@ async def detail_interview_node(state: AgentState) -> dict:
     if not missing:
         return {}
 
-    question = await _generate_question(
-        profile, missing, selected, list(state["messages"])
-    )
+    history = list(state["messages"])[-_HISTORY_WINDOW:]
+
+    question = await _generate_question(profile, missing, selected, history)
     ai_message = AIMessage(content=question)
 
     user_answer: str = interrupt({"question": question, "missing_fields": missing})
 
-    new_profile, new_missing = await _extract_profile(
+    new_profile, new_missing, extraction_failed = await _extract_profile(
         profile,
         missing,
         user_answer,
-        list(state["messages"]) + [ai_message],
+        (history + [ai_message])[-_HISTORY_WINDOW:],
     )
 
+    messages = [ai_message, HumanMessage(content=user_answer)]
+    if extraction_failed:
+        messages.append(AIMessage(content=_RETRY_MSG))
+
     return {
-        "messages": [ai_message, HumanMessage(content=user_answer)],
+        "messages": messages,
         "user_profile": new_profile,
         "detail_missing_fields": new_missing,
     }
