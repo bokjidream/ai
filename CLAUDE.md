@@ -92,8 +92,11 @@ GROQ_API_KEY=
 GROQ_MODEL=llama-3.3-70b-versatile
 GRAPH_CHECKPOINTER=memory
 SQLITE_DB_PATH=./checkpoints.db
+LLM_MAX_RETRY=2
+HISTORY_WINDOW_SIZE=10
 RAG_SERVICE_URL=http://localhost:8000
 RAG_SEARCH_TOP_K=5
+CORS_ALLOW_ORIGINS=http://localhost:3000
 ```
 
 ## Testing

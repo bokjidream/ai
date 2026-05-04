@@ -35,12 +35,12 @@ def _base_state(**overrides) -> dict:
 
 
 class TestGraphCompile:
-    def test_graph_compiles(self):
-        g = build_graph()
+    async def test_graph_compiles(self):
+        g = await build_graph()
         assert g is not None
 
-    def test_all_nodes_registered(self):
-        g = build_graph()
+    async def test_all_nodes_registered(self):
+        g = await build_graph()
         nodes = list(g.get_graph().nodes.keys())
         expected = [
             "initial_interview",

@@ -191,7 +191,7 @@ class TestExtraFieldsHandling:
             )
             mock_get_llm.return_value = mock_llm
 
-            new_profile, _ = await _extract_profile(profile, missing, "새값", [])
+            new_profile, _, _ = await _extract_profile(profile, missing, "새값", [])
 
         assert new_profile.extra_fields["기존키"] == "기존값"
         assert new_profile.extra_fields["새키"] == "새값"
@@ -209,12 +209,13 @@ class TestStructuredOutputRetry:
             mock_llm.with_structured_output.return_value = mock_extractor
             mock_get_llm.return_value = mock_llm
 
-            new_profile, new_missing = await _extract_profile(
+            new_profile, new_missing, failed = await _extract_profile(
                 profile, missing, "내 답변", []
             )
 
         assert new_profile == profile
         assert new_missing == missing
+        assert failed is True
 
     async def test_retries_exactly_max_retry_plus_one_times(self):
         profile = UserProfile()
@@ -246,12 +247,13 @@ class TestStructuredOutputRetry:
             mock_llm.with_structured_output.return_value = mock_extractor
             mock_get_llm.return_value = mock_llm
 
-            new_profile, new_missing = await _extract_profile(
+            new_profile, new_missing, failed = await _extract_profile(
                 profile, missing, "전세입니다", []
             )
 
         assert new_profile.housing_type == "전세"
         assert "housing_type" not in new_missing
+        assert failed is False
 
 
 class TestGenerateQuestion:

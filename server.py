@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import uuid
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
@@ -10,16 +12,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from langgraph.types import Command
 from pydantic import BaseModel
 
-from graph.builder import graph  # builder.py 내부에서 load_dotenv() 호출
+from graph.builder import build_graph
 from graph.state import UserProfile, WelfareCandidate
 
 load_dotenv()
 
-app = FastAPI(title="BokjiDream AI Server")
+# 서버 시작 시 lifespan에서 초기화됨
+graph = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """서버 시작 시 그래프를 초기화하고, 종료 시 리소스를 정리합니다."""
+    global graph
+    graph = await build_graph()
+    yield
+    # SQLite 모드일 경우 _checkpointer_stack이 GC될 때 커넥션 자동 종료
+
+
+app = FastAPI(title="BokjiDream AI Server", lifespan=lifespan)
+
+_CORS_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_CORS_ORIGINS,
     allow_methods=["POST"],
     allow_headers=["Content-Type"],
 )
