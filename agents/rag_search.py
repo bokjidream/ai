@@ -59,14 +59,19 @@ async def rag_search_node(state: AgentState) -> dict:
 
     # RAG 호출 (1회 재시도)
     results = None
+    last_error = None
     for _ in range(2):
         try:
             results = await rag_client.search(
                 profile=_profile_to_dict(profile), top_k=top_k
             )
             break
-        except Exception:
+        except Exception as e:
+            last_error = e
             continue
+
+    if results is None and last_error is not None:
+        print(f"[RAG 오류] {type(last_error).__name__}: {last_error}")
 
     if results is None:
         error_msg = (
