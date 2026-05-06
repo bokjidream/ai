@@ -85,7 +85,7 @@ async def initial_interview_node(state: AgentState) -> dict:
     ai_msg = AIMessage(content=question)
     human_msg = HumanMessage(content=user_answer)
 
-    if result.get("exist"):
+    if result.get("exist") and result.get("value") is not None:
         new_profile = _apply_value(state["user_profile"], field, result["value"])
         new_missing = _update_missing(field, new_profile, missing)
         return {

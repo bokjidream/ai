@@ -3,6 +3,7 @@ from contextlib import AsyncExitStack
 
 from dotenv import load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
@@ -87,14 +88,32 @@ async def build_graph():
 
         db_path = os.getenv("SQLITE_DB_PATH", "./checkpoints.db")
         _checkpointer_stack = AsyncExitStack()
-        # enter_async_context: context manager를 "열어둔 채로" 스택에 등록
-        # 스택이 살아있는 한 DB 커넥션이 유지됨
         checkpointer = await _checkpointer_stack.enter_async_context(
             AsyncSqliteSaver.from_conn_string(db_path)
+        )
+        checkpointer.serde = JsonPlusSerializer(
+            allowed_msgpack_modules=[
+                ("graph.state", "UserProfile"),
+                ("graph.state", "WelfareCandidate"),
+                ("graph.state", "IncomeLevel"),
+                ("graph.state", "EmploymentStatus"),
+                ("graph.state", "MaritalStatus"),
+                ("graph.state", "DisabilitySeverity"),
+            ]
         )
         return builder.compile(checkpointer=checkpointer)
 
     if mode == "postgres":
         raise NotImplementedError("Postgres checkpointer is not configured yet.")
 
-    return builder.compile(checkpointer=MemorySaver())
+    serde = JsonPlusSerializer(
+        allowed_msgpack_modules=[
+            ("graph.state", "UserProfile"),
+            ("graph.state", "WelfareCandidate"),
+            ("graph.state", "IncomeLevel"),
+            ("graph.state", "EmploymentStatus"),
+            ("graph.state", "MaritalStatus"),
+            ("graph.state", "DisabilitySeverity"),
+        ]
+    )
+    return builder.compile(checkpointer=MemorySaver(serde=serde))
