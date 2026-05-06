@@ -4,7 +4,7 @@ import uuid
 from dotenv import load_dotenv
 from langgraph.types import Command
 
-from graph.builder import graph
+from graph.builder import build_graph
 from graph.state import UserProfile
 
 load_dotenv()
@@ -36,7 +36,7 @@ def _initial_state() -> dict:
     }
 
 
-async def _run_until_interrupt(input_: dict | Command, config: dict) -> tuple:
+async def _run_until_interrupt(graph, input_: dict | Command, config: dict) -> tuple:
     async for chunk in graph.astream(input_, config, stream_mode="updates"):
         if "__interrupt__" in chunk:
             interrupt_value = chunk["__interrupt__"][0].value
@@ -54,6 +54,7 @@ async def _run_until_interrupt(input_: dict | Command, config: dict) -> tuple:
 
 async def run():
     """그래프 실행 진입점."""
+    graph = await build_graph()
     thread_id = str(uuid.uuid4())
     config = {"configurable": {"thread_id": thread_id}}
 
@@ -63,7 +64,7 @@ async def run():
 
     while True:
         response_type, interrupt_value, state = await _run_until_interrupt(
-            input_, config
+            graph, input_, config
         )
 
         if response_type == "interview":
