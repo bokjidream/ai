@@ -90,7 +90,7 @@ class TestWelfareCandidate:
         assert candidate.department == ""
         assert candidate.eligibility_reason == ""
         assert candidate.required_documents == []
-        assert candidate.application_fields == []
+        assert candidate.application_method == ""
         assert candidate.application_url is None
         assert candidate.detail_fetched is False
 

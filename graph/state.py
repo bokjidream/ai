@@ -86,7 +86,7 @@ class WelfareCandidate(BaseModel):
 
     # ── 2차 RAG 상세 조회 후 채워짐 ──
     required_documents: list[str] = []
-    application_fields: list[str] = []
+    application_method: str = ""
     application_url: str | None = None
     detail_fetched: bool = False
 

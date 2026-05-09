@@ -42,7 +42,7 @@ def mock_rag_client():
             "serv_id": "WLF00000035",
             "serv_nm": "기초연금",
             "required_documents": [],
-            "application_fields": [],
+            "application_method": "",
             "application_url": None,
         }
     )

@@ -26,7 +26,7 @@ _DETAIL_RESPONSE = {
     "serv_id": "WLF-001",
     "serv_nm": "기초연금",
     "required_documents": ["신분증", "통장사본"],
-    "application_fields": ["신청인 성명", "생년월일"],
+    "application_method": "읍면동 주민센터 방문 신청",
     "application_url": "https://www.bokjiro.go.kr",
 }
 
@@ -94,7 +94,7 @@ class TestGetDetail:
         assert "serv_id" in result
         assert "serv_nm" in result
         assert "required_documents" in result
-        assert "application_fields" in result
+        assert "application_method" in result
         assert "application_url" in result
 
     async def test_required_documents_is_list(self, httpx_mock: HTTPXMock):
@@ -102,10 +102,10 @@ class TestGetDetail:
         result = await get_detail("WLF-001")
         assert isinstance(result["required_documents"], list)
 
-    async def test_application_fields_is_list(self, httpx_mock: HTTPXMock):
+    async def test_application_method_is_string(self, httpx_mock: HTTPXMock):
         httpx_mock.add_response(json=_DETAIL_RESPONSE)
         result = await get_detail("WLF-001")
-        assert isinstance(result["application_fields"], list)
+        assert isinstance(result["application_method"], str)
 
     async def test_raises_on_unknown_service(self, httpx_mock: HTTPXMock):
         # 실제 서버는 없는 ID에 404를 반환 → rag_detail_node의 예외 처리가 잡아줌

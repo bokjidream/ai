@@ -61,12 +61,12 @@ class TestGetDetailIntegration:
         result = await get_detail(first_candidate["serv_id"])
         assert "serv_id" in result
         assert "required_documents" in result
-        assert "application_fields" in result
+        assert "application_method" in result
 
     async def test_required_documents_is_list(self, first_candidate):
         result = await get_detail(first_candidate["serv_id"])
         assert isinstance(result["required_documents"], list)
 
-    async def test_application_fields_is_list(self, first_candidate):
+    async def test_application_method_is_string(self, first_candidate):
         result = await get_detail(first_candidate["serv_id"])
-        assert isinstance(result["application_fields"], list)
+        assert isinstance(result["application_method"], str)
