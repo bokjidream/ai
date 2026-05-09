@@ -22,7 +22,7 @@ def _make_selected(**kwargs) -> WelfareCandidate:
         department="보건복지부",
         score=0.95,
         priority=1,
-        application_fields=["신청인 성명", "생년월일", "주소", "소득 수준"],
+        application_method="읍면동 주민센터 방문 신청, 사회보장급여 신청서 제출",
         required_documents=["신분증", "사회보장급여 신청서"],
         detail_fetched=True,
     )
@@ -103,8 +103,8 @@ class TestDraftWriterNode:
         assert result["messages"][0].content == "가이드 내용"
 
     @patch("agents.draft_writer.get_llm")
-    async def test_empty_application_fields_returns_fallback(self, mock_get_llm):
-        state = _make_state(selected_service=_make_selected(application_fields=[]))
+    async def test_no_application_method_returns_fallback(self, mock_get_llm):
+        state = _make_state(selected_service=_make_selected(application_method=""))
 
         result = await draft_writer_node(state)
 

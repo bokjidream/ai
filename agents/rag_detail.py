@@ -109,7 +109,7 @@ async def rag_detail_node(state: AgentState) -> dict:
     updated = selected.model_copy(
         update={
             "required_documents": detail.get("required_documents", []),
-            "application_fields": detail.get("application_fields", []),
+            "application_method": detail.get("application_method", ""),
             "application_url": detail.get("application_url"),
             "detail_fetched": True,
         }

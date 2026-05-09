@@ -1,4 +1,4 @@
-"""신청서 작성 가이드 노드 — application_fields 항목별 텍스트 가이드 생성."""
+"""신청서 작성 가이드 노드 — application_method 원문 기반 신청 안내 생성."""
 
 from pathlib import Path
 
@@ -45,24 +45,33 @@ def _format_user_info(profile: UserProfile) -> str:
 
 
 async def draft_writer_node(state: AgentState) -> dict:
-    """application_fields와 user_profile을 기반으로 신청서 작성 가이드 생성."""
+    """application_method 원문과 required_documents를 기반으로 신청 안내 생성."""
     selected: WelfareCandidate = state["selected_service"]
     profile: UserProfile = state["user_profile"]
 
-    if not selected.application_fields:
+    if not selected.application_method:
         fallback = (
-            f"'{selected.serv_nm}' 신청서 항목 정보가 없습니다. "
-            "해당 기관에 직접 문의하여 신청서를 작성해 주세요."
+            f"'{selected.serv_nm}' 신청 방법 정보가 없습니다. "
+            "해당 기관에 직접 문의하여 신청 방법을 확인해 주세요."
         )
         return {
             "application_guide": fallback,
             "messages": [AIMessage(content=fallback)],
         }
 
+    if selected.required_documents:
+        documents_section = "\n".join(f"- {doc}" for doc in selected.required_documents)
+    else:
+        documents_section = (
+            "시스템상 명확히 추출된 구비서류 목록이 없습니다. "
+            "위 신청방법 원문을 참고하세요."
+        )
+
     prompt_template = _load_prompt()
     prompt = prompt_template.format(
         serv_nm=selected.serv_nm,
-        application_fields="\n".join(f"- {f}" for f in selected.application_fields),
+        application_method=selected.application_method,
+        documents_section=documents_section,
         user_info=_format_user_info(profile),
     )
 

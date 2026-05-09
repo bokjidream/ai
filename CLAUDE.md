@@ -44,7 +44,7 @@ prompts/ *.txt   tests/       main.py        server.py
 **`WelfareCandidate`** (Pydantic BaseModel) — field names match RAG API exactly
 - Required: `serv_id`, `serv_nm`, `serv_dgst`
 - Defaults: `department=""`, `eligibility_reason=""` (LLM-generated), `score=0.0`, `priority=0`
-- Phase 2: `required_documents=[]`, `application_fields=[]`, `application_url=None`, `detail_fetched=False`
+- Phase 2: `required_documents=[]`, `application_method=""`, `application_url=None`, `detail_fetched=False`
 
 **`AgentState`** (TypedDict) — all fields must be provided explicitly in `graph.invoke()`
 ```python
@@ -67,11 +67,13 @@ Body:  { "age": 65, "income_level": "기초생활수급자", "top_k": 5, ... }  
 Response: { "results": [{ "serv_id", "serv_nm", "serv_dgst", "department", "score" }, ...] }
 
 GET /welfare/{serv_id}
-Response: { "serv_id", "serv_nm", "required_documents", "application_fields", "application_url", ... }
+Response: { "serv_id", "serv_nm", "required_documents", "application_method", "application_url", ... }
 ```
 - Empty search → HTTP 200 + `{"results": []}` → pipeline ends, no LLM fallback
 - `eligibility_reason` is NOT in RAG response — LLM generates it from `serv_dgst`
-- `required_documents` / `application_fields` currently return `[]` (RAG not yet implemented)
+- `application_method`: 복지로 "신청방법" 탭 원문, 413건 100% 채워짐
+- `required_documents`: 원문에서 서류 라벨 명확한 경우만 추출 (보수적 파싱, 현재 소수 건만 채워짐) — 비어있어도 "서류 없음"이 아님
+- `application_fields` 제거됨 (RAG PR #19)
 
 ## Checkpointer
 

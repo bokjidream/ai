@@ -22,7 +22,7 @@ def _make_selected(**kwargs) -> WelfareCandidate:
         score=0.95,
         priority=1,
         required_documents=["신분증", "사회보장급여 신청서"],
-        application_fields=["신청인 성명", "생년월일", "소득 수준"],
+        application_method="읍면동 주민센터 방문 신청, 사회보장급여 신청서 제출",
         detail_fetched=True,
     )
     defaults.update(kwargs)

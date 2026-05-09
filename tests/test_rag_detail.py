@@ -55,7 +55,7 @@ _DUMMY_DETAIL = {
     "serv_id": "WLF-001",
     "serv_nm": "기초생활수급자 생계급여",
     "required_documents": ["사회보장급여 신청서", "신분증"],
-    "application_fields": ["신청인 성명", "주소"],
+    "application_method": "읍면동 주민센터 방문 신청, 사회보장급여 신청서 제출",
     "application_url": "https://www.bokjiro.go.kr",
     "tgtr_dtl_cn": "기초생활수급자 중 생계급여 수급자",
     "slct_crit_cn": "소득인정액이 생계급여 선정기준 이하인 자",
@@ -77,7 +77,10 @@ class TestRagDetailNode:
         updated = result["selected_service"]
         assert updated.detail_fetched is True
         assert updated.required_documents == ["사회보장급여 신청서", "신분증"]
-        assert updated.application_fields == ["신청인 성명", "주소"]
+        assert (
+            updated.application_method
+            == "읍면동 주민센터 방문 신청, 사회보장급여 신청서 제출"
+        )
         assert updated.application_url == "https://www.bokjiro.go.kr"
 
     @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
@@ -150,7 +153,7 @@ class TestRagDetailNode:
 
         updated = result["selected_service"]
         assert updated.required_documents == []
-        assert updated.application_fields == []
+        assert updated.application_method == ""
         assert updated.application_url is None
         assert updated.detail_fetched is True
 

@@ -41,7 +41,7 @@ async def get_detail(service_id: str) -> dict:
         service_id: RAG 서비스 ID (WelfareCandidate.serv_id)
 
     Returns:
-        {"serv_id", "serv_nm", "required_documents", "application_fields",
+        {"serv_id", "serv_nm", "required_documents", "application_method",
         "application_url", ...}
     """
     async with httpx.AsyncClient(base_url=_base_url(), timeout=_TIMEOUT) as client:
