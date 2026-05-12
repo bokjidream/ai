@@ -1,5 +1,7 @@
 """서비스 선택 HitL 노드 — 후보 목록 제시 후 사용자 선택을 interrupt()로 수신."""
 
+import re
+
 from langchain_core.messages import AIMessage
 from langgraph.types import interrupt
 
@@ -26,16 +28,14 @@ async def service_select_node(state: AgentState) -> dict:
     candidates_display = _format_candidates(candidates)
     user_input: str = interrupt(value={"candidates": candidates_display, "error": None})
 
-    # 입력 유효성 검사 루프 (노드 내부 루프 없이 재interrupt)
+    # 입력 유효성 검사 루프 — 올바른 번호가 올 때까지 재interrupt
     while True:
-        try:
-            choice = int(user_input.strip())
+        match = re.search(r"\d+", user_input)
+        if match:
+            choice = int(match.group())
             if 1 <= choice <= len(candidates):
                 break
-        except (ValueError, AttributeError):
-            pass
 
-        # 잘못된 입력 → 오류 메시지와 함께 재interrupt
         user_input = interrupt(
             value={
                 "candidates": candidates_display,
