@@ -60,8 +60,15 @@ async def document_guidance_node(state: AgentState) -> dict:
     )
 
     llm = get_llm()
-    response = await llm.ainvoke(prompt)
-    guidance = response.content
+    try:
+        response = await llm.ainvoke(prompt)
+        guidance = response.content
+    except Exception as e:
+        print(f"[LLM 오류] document_guidance {type(e).__name__}: {e}")
+        guidance = (
+            f"'{selected.serv_nm}' 서류 안내 생성 중 오류가 발생했습니다. "
+            "해당 기관에 직접 문의해 주세요."
+        )
 
     return {
         "document_guidance": guidance,
