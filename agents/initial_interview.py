@@ -69,18 +69,35 @@ async def initial_interview_node(state: AgentState) -> dict:
     is_reask = current_field is not None
     field = current_field or missing[0]
 
-    question = await hwnv_client.ask_question(
-        field=field,
-        re_ask=is_reask,
-        pre_assistant_message=state.get("interview_last_question", "")
-        if is_reask
-        else "",
-        pre_user_message=state.get("interview_last_answer", "") if is_reask else "",
-    )
+    try:
+        question = await hwnv_client.ask_question(
+            field=field,
+            re_ask=is_reask,
+            pre_assistant_message=state.get("interview_last_question", "")
+            if is_reask
+            else "",
+            pre_user_message=state.get("interview_last_answer", "") if is_reask else "",
+        )
+    except Exception as e:
+        print(f"[hwnv ask_question 오류] {type(e).__name__}: {e}")
+        error_msg = (
+            "죄송합니다. 질문 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
+        )
+        return {"messages": [AIMessage(content=error_msg)]}
 
     user_answer: str = interrupt({"question": question, "field": field})
 
-    result = await hwnv_client.extract_value(field, question, user_answer)
+    try:
+        result = await hwnv_client.extract_value(field, question, user_answer)
+    except Exception as e:
+        print(f"[hwnv extract_value 오류] {type(e).__name__}: {e}")
+        # 답변은 받았으나 추출 실패 → re_ask로 재진입
+        return {
+            "initial_missing_fields": missing,
+            "interview_current_field": field,
+            "interview_last_question": question,
+            "interview_last_answer": user_answer,
+        }
 
     ai_msg = AIMessage(content=question)
     human_msg = HumanMessage(content=user_answer)
