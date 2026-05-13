@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import logging.config
 import os
+import time
 import uuid
 from contextlib import asynccontextmanager
 
@@ -111,6 +112,7 @@ def _initial_state() -> dict:
         "interview_current_field": None,
         "interview_last_question": "",
         "interview_last_answer": "",
+        "pending_question": None,
     }
 
 
@@ -202,10 +204,23 @@ async def _run_until_interrupt(
     config: dict,
 ) -> ChatResponse:
     logger.debug("[thread=%s] 그래프 스트림 시작", thread_id)
+    t_stream_start = time.perf_counter()
     async for chunk in graph.astream(input_, config, stream_mode="updates"):
         if "__interrupt__" in chunk:
+            t_interrupt = time.perf_counter()
+            logger.info(
+                "[thread=%s] [TIMING] stream→interrupt: %.3fs",
+                thread_id,
+                t_interrupt - t_stream_start,
+            )
             interrupt_value = chunk["__interrupt__"][0].value
+            t0 = time.perf_counter()
             state = await graph.aget_state(config)
+            logger.info(
+                "[thread=%s] [TIMING] aget_state (post-interrupt): %.3fs",
+                thread_id,
+                time.perf_counter() - t0,
+            )
             if "question" in interrupt_value:
                 logger.info(
                     "[thread=%s] INTERRUPT → interview | field=%s | question=%.60s",
@@ -255,7 +270,13 @@ async def chat_message(body: MessageRequest) -> ChatResponse:
     thread_id = body.thread_id
     logger.info("[thread=%s] POST /chat/message | msg=%.40r", thread_id, body.message)
     config = {"configurable": {"thread_id": thread_id}}
+    t0 = time.perf_counter()
     state = await graph.aget_state(config)
+    logger.info(
+        "[thread=%s] [TIMING] aget_state (pre-stream): %.3fs",
+        thread_id,
+        time.perf_counter() - t0,
+    )
     if not state.values:
         logger.warning("[thread=%s] thread 없음", thread_id)
         raise HTTPException(status_code=404, detail="thread_id를 찾을 수 없습니다.")

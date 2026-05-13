@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage
-from langgraph.types import interrupt
+from langgraph.types import Command, interrupt
 
 from graph.state import (  # noqa: TCH001
     DisabilitySeverity,
@@ -59,7 +59,7 @@ def _update_missing(
     return new_missing
 
 
-async def initial_interview_node(state: AgentState) -> dict:
+async def initial_interview_node(state: AgentState) -> dict | Command:
     """1단계 인터뷰: hwnv.cloud API로 필드별 질문·추출을 수행합니다."""
     missing = list(state["initial_missing_fields"])
     if not missing:
@@ -69,19 +69,29 @@ async def initial_interview_node(state: AgentState) -> dict:
     is_reask = current_field is not None
     field = current_field or missing[0]
 
-    try:
-        question = await hwnv_client.ask_question(
-            field=field,
-            re_ask=is_reask,
-            pre_assistant_message=state.get("interview_last_question", ""),
-            pre_user_message=state.get("interview_last_answer", ""),
+    # pending_question이 없으면 ask_question을 호출하고 state에 저장한 뒤 재진입.
+    # LangGraph는 resume 시 노드를 처음부터 재실행하므로, 저장해두지 않으면
+    # ask_question이 중복 호출된다.
+    question = state.get("pending_question")
+    if question is None:
+        try:
+            question = await hwnv_client.ask_question(
+                field=field,
+                re_ask=is_reask,
+                pre_assistant_message=state.get("interview_last_question", ""),
+                pre_user_message=state.get("interview_last_answer", ""),
+            )
+        except Exception as e:
+            print(f"[hwnv ask_question 오류] {type(e).__name__}: {e}")
+            error_msg = (
+                "죄송합니다. 질문 생성 중 오류가 발생했습니다. "
+                "잠시 후 다시 시도해 주세요."
+            )
+            return {"messages": [AIMessage(content=error_msg)]}
+        return Command(
+            update={"pending_question": question},
+            goto="initial_interview",
         )
-    except Exception as e:
-        print(f"[hwnv ask_question 오류] {type(e).__name__}: {e}")
-        error_msg = (
-            "죄송합니다. 질문 생성 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
-        )
-        return {"messages": [AIMessage(content=error_msg)]}
 
     user_answer: str = interrupt({"question": question, "field": field})
 
@@ -89,12 +99,12 @@ async def initial_interview_node(state: AgentState) -> dict:
         result = await hwnv_client.extract_value(field, question, user_answer)
     except Exception as e:
         print(f"[hwnv extract_value 오류] {type(e).__name__}: {e}")
-        # 답변은 받았으나 추출 실패 → re_ask로 재진입
         return {
             "initial_missing_fields": missing,
             "interview_current_field": field,
             "interview_last_question": question,
             "interview_last_answer": user_answer,
+            "pending_question": None,
         }
 
     ai_msg = AIMessage(content=question)
@@ -110,13 +120,14 @@ async def initial_interview_node(state: AgentState) -> dict:
             "interview_current_field": None,
             "interview_last_question": question,
             "interview_last_answer": user_answer,
+            "pending_question": None,
         }
 
-    # 추출 실패 또는 재질문 필요 → 다음 호출에서 re_ask=True로 재진입
     return {
         "messages": [ai_msg, human_msg],
         "initial_missing_fields": missing,
         "interview_current_field": field,
         "interview_last_question": question,
         "interview_last_answer": user_answer,
+        "pending_question": None,
     }
