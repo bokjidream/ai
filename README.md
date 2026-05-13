@@ -49,7 +49,7 @@ cp .env.example .env
 | `GROQ_MODEL` | `llama-3.3-70b-versatile` | 사용할 Groq 모델 |
 | `GRAPH_CHECKPOINTER` | `memory` | `memory` (개발) / `sqlite` (운영) |
 | `SQLITE_DB_PATH` | `./checkpoints.db` | SQLite 저장 경로 (sqlite 모드일 때) |
-| `RAG_SERVICE_URL` | `http://localhost:8000` | RAG 서버 주소 |
+| `RAG_SERVICE_URL` | `http://localhost:8001` | RAG 서버 주소 |
 | `RAG_SEARCH_TOP_K` | `5` | RAG 검색 후보 최대 수 |
 | `LLM_MAX_RETRY` | `2` | LLM 파싱 실패 시 최대 재시도 횟수 |
 | `HISTORY_WINDOW_SIZE` | `10` | LLM에 넘길 최근 대화 메시지 최대 개수 |
@@ -60,8 +60,8 @@ cp .env.example .env
 # 의존성 설치
 uv sync --all-groups
 
-# 서버 실행 (기본 포트 8001 — RAG 서버가 8000 사용 중)
-uv run uvicorn server:app --reload --port 8001
+# 서버 실행 (기본 포트 8000)
+uv run uvicorn server:app --reload --port 8000
 ```
 
 > RAG 서버가 별도로 실행 중이어야 합니다. `RAG_SERVICE_URL`을 RAG 서버 주소로 설정하세요.
