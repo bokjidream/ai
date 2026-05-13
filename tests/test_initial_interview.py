@@ -205,7 +205,7 @@ class TestInitialInterviewNodeExtraction:
     @patch("agents.initial_interview.hwnv_client.extract_value", new_callable=AsyncMock)
     @patch("agents.initial_interview.hwnv_client.ask_question", new_callable=AsyncMock)
     @patch("agents.initial_interview.interrupt", return_value="26살이요")
-    async def test_successful_reask_clears_tracking_fields(
+    async def test_successful_reask_keeps_last_exchange(
         self, mock_interrupt, mock_ask, mock_extract
     ):
         mock_ask.return_value = "나이를 숫자로 말씀해주세요."
@@ -225,8 +225,8 @@ class TestInitialInterviewNodeExtraction:
         result = await initial_interview_node(state)
 
         assert result["interview_current_field"] is None
-        assert result["interview_last_question"] == ""
-        assert result["interview_last_answer"] == ""
+        assert result["interview_last_question"] == "나이를 숫자로 말씀해주세요."
+        assert result["interview_last_answer"] == "26살이요"
 
 
 class TestDisabilitySeverityHandling:
