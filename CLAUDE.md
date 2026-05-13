@@ -99,6 +99,8 @@ HISTORY_WINDOW_SIZE=10
 RAG_SERVICE_URL=http://localhost:8000
 RAG_SEARCH_TOP_K=5
 CORS_ALLOW_ORIGINS=http://localhost:3000
+HWNV_SERVICE_URL=http://localhost:8002
+HWNV_TIMEOUT=300.0
 ```
 
 ## Testing

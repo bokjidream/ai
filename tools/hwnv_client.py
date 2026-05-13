@@ -1,11 +1,15 @@
 """hwnv.cloud 인터뷰 API 클라이언트."""
 
 import json
+import os
 
 import httpx
+from dotenv import load_dotenv
 
-_BASE_URL = "https://hwnv.cloud"
-_TIMEOUT = 300.0
+load_dotenv()
+
+_BASE_URL = os.getenv("HWNV_SERVICE_URL", "https://hwnv.cloud")
+_TIMEOUT = float(os.getenv("HWNV_TIMEOUT", "300.0"))
 
 
 async def ask_question(
