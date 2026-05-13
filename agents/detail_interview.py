@@ -119,7 +119,11 @@ async def _extract_profile(
             continue
 
     if extraction is None:
+        print(f"[DEBUG] extraction 완전 실패 (missing: {missing})")
         return profile, missing, True
+
+    print(f"[DEBUG] 질문한 필드: {missing}")
+    print(f"[DEBUG] extraction 결과: {extraction.model_dump()}")
 
     # 일반 필드 업데이트
     regular_updates = {
