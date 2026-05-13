@@ -130,7 +130,7 @@ SQLITE_DB_PATH=./checkpoints.db        # GRAPH_CHECKPOINTER=sqlite 시 사용
 
 ```dotenv
 # RAG 서비스 연동
-RAG_SERVICE_URL=http://localhost:8000
+RAG_SERVICE_URL=http://localhost:8001
 RAG_SEARCH_TOP_K=5
 RAG_TIMEOUT_SECONDS=10                 # HTTP 타임아웃 (초)
 RAG_MAX_RETRIES=1                      # 네트워크 오류 재시도 횟수
@@ -140,7 +140,7 @@ RAG_MAX_RETRIES=1                      # 네트워크 오류 재시도 횟수
 
 ```dotenv
 # Ollama (로컬 LLM)
-OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_BASE_URL=http://localhost:8080
 OLLAMA_MODEL=llama3
 ```
 
@@ -149,7 +149,7 @@ OLLAMA_MODEL=llama3
 ```dotenv
 # FastAPI 서버 (Next.js 연동)
 SERVER_HOST=0.0.0.0
-SERVER_PORT=8001
+SERVER_PORT=8000
 ```
 
 ---

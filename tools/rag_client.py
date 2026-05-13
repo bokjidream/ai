@@ -8,7 +8,7 @@ _TIMEOUT = 10.0
 
 
 def _base_url() -> str:
-    return os.getenv("RAG_SERVICE_URL", "http://localhost:8000")
+    return os.getenv("RAG_SERVICE_URL", "http://localhost:8001")
 
 
 async def search(profile: dict, top_k: int | None = None) -> list[dict]:
