@@ -395,3 +395,40 @@ class TestInferMissingFields:
         )
 
         assert result == []
+
+    @patch("agents.rag_detail.get_llm")
+    async def test_disability_fields_excluded_when_disability_false(self, mock_get_llm):
+        """disability=False이면 disability_type·disability_grade는 반환에서 제외."""
+        extractor = AsyncMock()
+        extractor.ainvoke = AsyncMock(
+            return_value=_RequiredFields(
+                regular_fields=["disability_type", "disability_grade", "housing_type"],
+                extra_fields=[],
+            )
+        )
+        mock_get_llm.return_value.with_structured_output.return_value = extractor
+
+        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
+        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
+
+        assert "disability_type" not in result
+        assert "disability_grade" not in result
+        assert "housing_type" in result
+
+    @patch("agents.rag_detail.get_llm")
+    async def test_disability_fields_included_when_disability_true(self, mock_get_llm):
+        """disability=True이면 disability_type·disability_grade가 포함될 수 있다."""
+        extractor = AsyncMock()
+        extractor.ainvoke = AsyncMock(
+            return_value=_RequiredFields(
+                regular_fields=["disability_type", "disability_grade"],
+                extra_fields=[],
+            )
+        )
+        mock_get_llm.return_value.with_structured_output.return_value = extractor
+
+        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=True)
+        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
+
+        assert "disability_type" in result
+        assert "disability_grade" in result
