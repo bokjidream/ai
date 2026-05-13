@@ -80,6 +80,12 @@ async def _infer_missing_fields(
         if key not in profile.extra_fields:
             missing.append(f"extra:{key}")
 
+    # disability=False면 장애 관련 필드는 수집 불필요
+    if not profile.disability:
+        missing = [
+            f for f in missing if f not in ("disability_type", "disability_grade")
+        ]
+
     return missing
 
 

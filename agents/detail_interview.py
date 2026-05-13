@@ -96,7 +96,11 @@ async def _extract_profile(
 
     extract_system = (
         "사용자의 답변에서 복지 서비스 신청용 개인 정보를 추출하세요.\n"
-        "확실하지 않은 값은 null로 두세요. 추론하거나 가정하지 마세요.\n"
+        "사용자가 '없음', '없어', '없다', '아니오', '해당 없음' 등"
+        " 부정적 답변을 한 경우:\n"
+        "  - str 타입 필드면 '없음'으로 설정하세요\n"
+        "  - bool 타입 필드면 false로 설정하세요\n"
+        "진짜로 불확실한 경우에만 null로 두세요. 추론하거나 가정하지 마세요.\n"
         f"추출 대상 필드: {', '.join(missing)}"
     )
     messages = [
@@ -115,7 +119,11 @@ async def _extract_profile(
             continue
 
     if extraction is None:
+        print(f"[DEBUG] extraction 완전 실패 (missing: {missing})")
         return profile, missing, True
+
+    print(f"[DEBUG] 질문한 필드: {missing}")
+    print(f"[DEBUG] extraction 결과: {extraction.model_dump()}")
 
     # 일반 필드 업데이트
     regular_updates = {
