@@ -6,3 +6,6 @@
 __pycache__/
 *.pyc
 .pytest_cache/*.db
+checkpoints.db
+checkpoints.db-shm
+checkpoints.db-wal
