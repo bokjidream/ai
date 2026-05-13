@@ -39,8 +39,8 @@ async def interview_field(field: str) -> tuple[str, object]:
         question = await ask_question(
             field=field,
             re_ask=is_reask,
-            pre_assistant_message=last_question if is_reask else "",
-            pre_user_message=last_answer if is_reask else "",
+            pre_assistant_message=last_question,
+            pre_user_message=last_answer,
         )
 
         user_answer = AUTO_ANSWERS[field]

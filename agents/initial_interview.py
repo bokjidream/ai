@@ -73,10 +73,8 @@ async def initial_interview_node(state: AgentState) -> dict:
         question = await hwnv_client.ask_question(
             field=field,
             re_ask=is_reask,
-            pre_assistant_message=state.get("interview_last_question", "")
-            if is_reask
-            else "",
-            pre_user_message=state.get("interview_last_answer", "") if is_reask else "",
+            pre_assistant_message=state.get("interview_last_question", ""),
+            pre_user_message=state.get("interview_last_answer", ""),
         )
     except Exception as e:
         print(f"[hwnv ask_question 오류] {type(e).__name__}: {e}")
@@ -110,8 +108,8 @@ async def initial_interview_node(state: AgentState) -> dict:
             "user_profile": new_profile,
             "initial_missing_fields": new_missing,
             "interview_current_field": None,
-            "interview_last_question": "",
-            "interview_last_answer": "",
+            "interview_last_question": question,
+            "interview_last_answer": user_answer,
         }
 
     # 추출 실패 또는 재질문 필요 → 다음 호출에서 re_ask=True로 재진입

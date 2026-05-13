@@ -5,7 +5,7 @@ import json
 import httpx
 
 _BASE_URL = "https://hwnv.cloud"
-_TIMEOUT = 120.0
+_TIMEOUT = 300.0
 
 
 async def ask_question(
@@ -19,7 +19,7 @@ async def ask_question(
     Args:
         field: 수집할 항목 (age, region 등)
         re_ask: 재질문 여부
-        pre_assistant_message: 직전 봇 발화 (재질문 시 자연스러운 연결용)
+        pre_assistant_message: 직전 봇 발화
         pre_user_message: 직전 사용자 발화
 
     Returns:
