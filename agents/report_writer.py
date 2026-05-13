@@ -37,8 +37,15 @@ async def report_writer_node(state: AgentState) -> dict:
     )
 
     llm = get_llm()
-    response = await llm.ainvoke(prompt)
-    report = response.content
+    try:
+        response = await llm.ainvoke(prompt)
+        report = response.content
+    except Exception as e:
+        print(f"[LLM 오류] report_writer {type(e).__name__}: {e}")
+        report = (
+            f"'{selected.serv_nm}' 보고서 생성 중 오류가 발생했습니다. "
+            "잠시 후 다시 시도해 주세요."
+        )
 
     return {
         "final_report": report,

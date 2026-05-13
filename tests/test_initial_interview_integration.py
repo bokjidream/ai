@@ -6,11 +6,17 @@ from agents.initial_interview import _apply_value, _update_missing
 from graph.state import UserProfile
 from tools import hwnv_client
 
-# 라운드별 사용자 답변 시나리오 (순서대로 소진)
+# 필드 순서(age→region→household_size→marital_status→has_children
+#           →disability→employment_status→income_level)에 맞춘 1필드 1답변
+# API가 field 하나씩만 추출하므로 각 답변은 해당 필드만 명확히 담아야 함
 _USER_ANSWERS = [
-    "안녕하세요. 저는 72살이고 경기도 성남에 살고 있어요.",
-    "혼자 살고 있고 미혼입니다. 자녀는 없어요.",
-    "장애는 없고요, 지금은 일을 안 하고 있어요.",
+    "저는 72살입니다.",
+    "경기도 성남에 살고 있어요.",
+    "혼자 살고 있어요.",
+    "미혼입니다.",
+    "자녀는 없어요.",
+    "장애는 없습니다.",
+    "지금은 일을 하지 않고 있어요.",
     "기초생활수급자입니다.",
 ]
 

@@ -76,8 +76,15 @@ async def draft_writer_node(state: AgentState) -> dict:
     )
 
     llm = get_llm()
-    response = await llm.ainvoke(prompt)
-    guide = response.content
+    try:
+        response = await llm.ainvoke(prompt)
+        guide = response.content
+    except Exception as e:
+        print(f"[LLM 오류] draft_writer {type(e).__name__}: {e}")
+        guide = (
+            f"'{selected.serv_nm}' 신청 안내 생성 중 오류가 발생했습니다. "
+            "해당 기관에 직접 문의해 주세요."
+        )
 
     return {
         "application_guide": guide,
