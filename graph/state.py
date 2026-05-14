@@ -107,3 +107,6 @@ class AgentState(TypedDict):
     interview_current_field: str | None  # 현재 처리 중인 필드 (None=새 필드)
     interview_last_question: str  # 직전 봇 질문 (re_ask pre_assistant_message)
     interview_last_answer: str  # 직전 사용자 답변 (re_ask pre_user_message)
+    pending_question: (
+        str | None
+    )  # interrupt 전 생성된 질문 캐시 (resume 중복 호출 방지, 1·2단계 공용)

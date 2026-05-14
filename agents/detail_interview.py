@@ -6,7 +6,7 @@ import os
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from langgraph.types import interrupt
+from langgraph.types import Command, interrupt
 from pydantic import BaseModel
 
 from graph.state import UserProfile  # noqa: TCH001
@@ -150,7 +150,7 @@ async def _extract_profile(
     return new_profile, new_missing, False
 
 
-async def detail_interview_node(state: AgentState) -> dict:
+async def detail_interview_node(state: AgentState) -> dict | Command:
     """2단계 인터뷰: 선택된 서비스의 자격 요건 기반으로 특화 정보를 수집합니다."""
     profile = state["user_profile"]
     missing = list(state["detail_missing_fields"])
@@ -161,7 +161,14 @@ async def detail_interview_node(state: AgentState) -> dict:
 
     history = list(state["messages"])[-_HISTORY_WINDOW:]
 
-    question = await _generate_question(profile, missing, selected, history)
+    question = state.get("pending_question")
+    if question is None:
+        question = await _generate_question(profile, missing, selected, history)
+        return Command(
+            update={"pending_question": question},
+            goto="detail_interview",
+        )
+
     ai_message = AIMessage(content=question)
 
     user_answer: str = interrupt({"question": question, "missing_fields": missing})
@@ -181,4 +188,5 @@ async def detail_interview_node(state: AgentState) -> dict:
         "messages": messages,
         "user_profile": new_profile,
         "detail_missing_fields": new_missing,
+        "pending_question": None,
     }
