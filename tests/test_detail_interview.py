@@ -45,19 +45,20 @@ class TestDetailInterviewNodeBasic:
         result = await detail_interview_node(state)
         assert result == {}
 
-    @patch("agents.detail_interview.interrupt", return_value="지체장애입니다")
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_interrupts_with_question(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
+    async def test_interrupts_with_question(self, mock_llm):
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
             return_value=_DetailExtraction(disability_type="지체장애")
         )
-
-        state = _base_state(detail_missing_fields=["disability_type"])
-        await detail_interview_node(state)
+        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+            with patch(
+                "agents.detail_interview.load_prompt", return_value="system prompt"
+            ):
+                with patch(
+                    "agents.detail_interview.interrupt",
+                    return_value="지체장애입니다",
+                ) as mock_interrupt:
+                    state = _base_state(detail_missing_fields=["disability_type"])
+                    await detail_interview_node(state)
 
         mock_interrupt.assert_called_once()
         call_args = mock_interrupt.call_args[0][0]
@@ -65,19 +66,20 @@ class TestDetailInterviewNodeBasic:
         assert "missing_fields" in call_args
         assert "disability_type" in call_args["missing_fields"]
 
-    @patch("agents.detail_interview.interrupt", return_value="지체장애입니다")
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_messages_contain_ai_and_human(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
+    async def test_messages_contain_ai_and_human(self, mock_llm):
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
             return_value=_DetailExtraction(disability_type="지체장애")
         )
-
-        state = _base_state(detail_missing_fields=["disability_type"])
-        result = await detail_interview_node(state)
+        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+            with patch(
+                "agents.detail_interview.load_prompt", return_value="system prompt"
+            ):
+                with patch(
+                    "agents.detail_interview.interrupt",
+                    return_value="지체장애입니다",
+                ):
+                    state = _base_state(detail_missing_fields=["disability_type"])
+                    result = await detail_interview_node(state)
 
         msgs = result["messages"]
         assert any(isinstance(m, AIMessage) for m in msgs)
@@ -88,43 +90,49 @@ class TestDetailInterviewNodeBasic:
 
 
 class TestDetailInterviewNodeExtraction:
-    @patch("agents.detail_interview.interrupt", return_value="지체장애, 자가")
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_extracted_fields_removed_from_missing(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
+    async def test_extracted_fields_removed_from_missing(self, mock_llm):
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
             return_value=_DetailExtraction(
                 disability_type="지체장애", housing_type="자가"
             )
         )
-
-        state = _base_state(
-            detail_missing_fields=["disability_type", "housing_type", "is_veteran"]
-        )
-        result = await detail_interview_node(state)
+        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+            with patch(
+                "agents.detail_interview.load_prompt", return_value="system prompt"
+            ):
+                with patch(
+                    "agents.detail_interview.interrupt", return_value="지체장애, 자가"
+                ):
+                    state = _base_state(
+                        detail_missing_fields=[
+                            "disability_type",
+                            "housing_type",
+                            "is_veteran",
+                        ]
+                    )
+                    result = await detail_interview_node(state)
 
         assert "disability_type" not in result["detail_missing_fields"]
         assert "housing_type" not in result["detail_missing_fields"]
         assert "is_veteran" in result["detail_missing_fields"]
 
-    @patch("agents.detail_interview.interrupt", return_value="지체장애, 자가")
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_profile_updated_with_extracted_fields(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
+    async def test_profile_updated_with_extracted_fields(self, mock_llm):
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
             return_value=_DetailExtraction(
                 disability_type="지체장애", housing_type="자가"
             )
         )
-
-        state = _base_state(detail_missing_fields=["disability_type", "housing_type"])
-        result = await detail_interview_node(state)
+        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+            with patch(
+                "agents.detail_interview.load_prompt", return_value="system prompt"
+            ):
+                with patch(
+                    "agents.detail_interview.interrupt", return_value="지체장애, 자가"
+                ):
+                    state = _base_state(
+                        detail_missing_fields=["disability_type", "housing_type"]
+                    )
+                    result = await detail_interview_node(state)
 
         profile = result["user_profile"]
         assert profile.disability_type == "지체장애"
@@ -132,51 +140,51 @@ class TestDetailInterviewNodeExtraction:
 
 
 class TestExtraFieldsHandling:
-    @patch("agents.detail_interview.interrupt", return_value="참전용사입니다")
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_extra_field_stored_in_extra_fields(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
+    async def test_extra_field_stored_in_extra_fields(self, mock_llm):
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
             return_value=_DetailExtraction(extra_fields={"참전유공자": True})
         )
-
-        state = _base_state(detail_missing_fields=["extra:참전유공자"])
-        result = await detail_interview_node(state)
+        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+            with patch(
+                "agents.detail_interview.load_prompt", return_value="system prompt"
+            ):
+                with patch(
+                    "agents.detail_interview.interrupt",
+                    return_value="참전용사입니다",
+                ):
+                    state = _base_state(detail_missing_fields=["extra:참전유공자"])
+                    result = await detail_interview_node(state)
 
         assert result["user_profile"].extra_fields.get("참전유공자") is True
 
-    @patch("agents.detail_interview.interrupt", return_value="참전용사입니다")
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_extra_field_removed_from_missing_after_extraction(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
+    async def test_extra_field_removed_from_missing_after_extraction(self, mock_llm):
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
             return_value=_DetailExtraction(extra_fields={"참전유공자": True})
         )
-
-        state = _base_state(detail_missing_fields=["extra:참전유공자"])
-        result = await detail_interview_node(state)
+        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+            with patch(
+                "agents.detail_interview.load_prompt", return_value="system prompt"
+            ):
+                with patch(
+                    "agents.detail_interview.interrupt",
+                    return_value="참전용사입니다",
+                ):
+                    state = _base_state(detail_missing_fields=["extra:참전유공자"])
+                    result = await detail_interview_node(state)
 
         assert "extra:참전유공자" not in result["detail_missing_fields"]
 
-    @patch("agents.detail_interview.interrupt", return_value="모름")
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_extra_field_remains_in_missing_when_not_extracted(
-        self, mock_get_llm, mock_load_prompt, mock_interrupt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
+    async def test_extra_field_remains_in_missing_when_not_extracted(self, mock_llm):
         mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
             return_value=_DetailExtraction()
         )
-
-        state = _base_state(detail_missing_fields=["extra:참전유공자"])
-        result = await detail_interview_node(state)
+        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+            with patch(
+                "agents.detail_interview.load_prompt", return_value="system prompt"
+            ):
+                with patch("agents.detail_interview.interrupt", return_value="모름"):
+                    state = _base_state(detail_missing_fields=["extra:참전유공자"])
+                    result = await detail_interview_node(state)
 
         assert "extra:참전유공자" in result["detail_missing_fields"]
 
