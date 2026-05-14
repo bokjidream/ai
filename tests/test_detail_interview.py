@@ -51,14 +51,14 @@ class TestDetailInterviewNodeBasic:
         )
         with patch("agents.detail_interview.get_llm", return_value=mock_llm):
             with patch(
-                "agents.detail_interview.load_prompt", return_value="system prompt"
-            ):
-                with patch(
-                    "agents.detail_interview.interrupt",
-                    return_value="지체장애입니다",
-                ) as mock_interrupt:
-                    state = _base_state(detail_missing_fields=["disability_type"])
-                    await detail_interview_node(state)
+                "agents.detail_interview.interrupt",
+                return_value="지체장애입니다",
+            ) as mock_interrupt:
+                state = _base_state(
+                    detail_missing_fields=["disability_type"],
+                    pending_question="장애 유형이 어떻게 되세요?",
+                )
+                await detail_interview_node(state)
 
         mock_interrupt.assert_called_once()
         call_args = mock_interrupt.call_args[0][0]
@@ -72,14 +72,14 @@ class TestDetailInterviewNodeBasic:
         )
         with patch("agents.detail_interview.get_llm", return_value=mock_llm):
             with patch(
-                "agents.detail_interview.load_prompt", return_value="system prompt"
+                "agents.detail_interview.interrupt",
+                return_value="지체장애입니다",
             ):
-                with patch(
-                    "agents.detail_interview.interrupt",
-                    return_value="지체장애입니다",
-                ):
-                    state = _base_state(detail_missing_fields=["disability_type"])
-                    result = await detail_interview_node(state)
+                state = _base_state(
+                    detail_missing_fields=["disability_type"],
+                    pending_question="장애 유형이 어떻게 되세요?",
+                )
+                result = await detail_interview_node(state)
 
         msgs = result["messages"]
         assert any(isinstance(m, AIMessage) for m in msgs)
@@ -98,19 +98,17 @@ class TestDetailInterviewNodeExtraction:
         )
         with patch("agents.detail_interview.get_llm", return_value=mock_llm):
             with patch(
-                "agents.detail_interview.load_prompt", return_value="system prompt"
+                "agents.detail_interview.interrupt", return_value="지체장애, 자가"
             ):
-                with patch(
-                    "agents.detail_interview.interrupt", return_value="지체장애, 자가"
-                ):
-                    state = _base_state(
-                        detail_missing_fields=[
-                            "disability_type",
-                            "housing_type",
-                            "is_veteran",
-                        ]
-                    )
-                    result = await detail_interview_node(state)
+                state = _base_state(
+                    detail_missing_fields=[
+                        "disability_type",
+                        "housing_type",
+                        "is_veteran",
+                    ],
+                    pending_question="장애 유형과 주거 형태를 알려주세요.",
+                )
+                result = await detail_interview_node(state)
 
         assert "disability_type" not in result["detail_missing_fields"]
         assert "housing_type" not in result["detail_missing_fields"]
@@ -124,15 +122,13 @@ class TestDetailInterviewNodeExtraction:
         )
         with patch("agents.detail_interview.get_llm", return_value=mock_llm):
             with patch(
-                "agents.detail_interview.load_prompt", return_value="system prompt"
+                "agents.detail_interview.interrupt", return_value="지체장애, 자가"
             ):
-                with patch(
-                    "agents.detail_interview.interrupt", return_value="지체장애, 자가"
-                ):
-                    state = _base_state(
-                        detail_missing_fields=["disability_type", "housing_type"]
-                    )
-                    result = await detail_interview_node(state)
+                state = _base_state(
+                    detail_missing_fields=["disability_type", "housing_type"],
+                    pending_question="장애 유형과 주거 형태를 알려주세요.",
+                )
+                result = await detail_interview_node(state)
 
         profile = result["user_profile"]
         assert profile.disability_type == "지체장애"
@@ -146,14 +142,14 @@ class TestExtraFieldsHandling:
         )
         with patch("agents.detail_interview.get_llm", return_value=mock_llm):
             with patch(
-                "agents.detail_interview.load_prompt", return_value="system prompt"
+                "agents.detail_interview.interrupt",
+                return_value="참전용사입니다",
             ):
-                with patch(
-                    "agents.detail_interview.interrupt",
-                    return_value="참전용사입니다",
-                ):
-                    state = _base_state(detail_missing_fields=["extra:참전유공자"])
-                    result = await detail_interview_node(state)
+                state = _base_state(
+                    detail_missing_fields=["extra:참전유공자"],
+                    pending_question="국가보훈 대상이신가요?",
+                )
+                result = await detail_interview_node(state)
 
         assert result["user_profile"].extra_fields.get("참전유공자") is True
 
@@ -163,14 +159,14 @@ class TestExtraFieldsHandling:
         )
         with patch("agents.detail_interview.get_llm", return_value=mock_llm):
             with patch(
-                "agents.detail_interview.load_prompt", return_value="system prompt"
+                "agents.detail_interview.interrupt",
+                return_value="참전용사입니다",
             ):
-                with patch(
-                    "agents.detail_interview.interrupt",
-                    return_value="참전용사입니다",
-                ):
-                    state = _base_state(detail_missing_fields=["extra:참전유공자"])
-                    result = await detail_interview_node(state)
+                state = _base_state(
+                    detail_missing_fields=["extra:참전유공자"],
+                    pending_question="국가보훈 대상이신가요?",
+                )
+                result = await detail_interview_node(state)
 
         assert "extra:참전유공자" not in result["detail_missing_fields"]
 
@@ -179,12 +175,12 @@ class TestExtraFieldsHandling:
             return_value=_DetailExtraction()
         )
         with patch("agents.detail_interview.get_llm", return_value=mock_llm):
-            with patch(
-                "agents.detail_interview.load_prompt", return_value="system prompt"
-            ):
-                with patch("agents.detail_interview.interrupt", return_value="모름"):
-                    state = _base_state(detail_missing_fields=["extra:참전유공자"])
-                    result = await detail_interview_node(state)
+            with patch("agents.detail_interview.interrupt", return_value="모름"):
+                state = _base_state(
+                    detail_missing_fields=["extra:참전유공자"],
+                    pending_question="국가보훈 대상이신가요?",
+                )
+                result = await detail_interview_node(state)
 
         assert "extra:참전유공자" in result["detail_missing_fields"]
 

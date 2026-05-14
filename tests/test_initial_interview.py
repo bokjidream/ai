@@ -69,23 +69,21 @@ class TestInitialInterviewNodeBasic:
             "agents.initial_interview.interrupt", return_value="저는 40살이에요"
         ) as mock_interrupt:
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "나이가 어떻게 되세요?"
-                    mock_extract.return_value = {
-                        "exist": True,
-                        "value": 40,
-                        "re_ask": False,
-                        "reasoning": "",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": True,
+                    "value": 40,
+                    "re_ask": False,
+                    "reasoning": "",
+                }
 
-                    state = _base_state(initial_missing_fields=["age"])
-                    await initial_interview_node(state)
+                state = _base_state(
+                    initial_missing_fields=["age"],
+                    pending_question="나이가 어떻게 되세요?",
+                )
+                await initial_interview_node(state)
 
         call_args = mock_interrupt.call_args[0][0]
         assert call_args["question"] == "나이가 어떻게 되세요?"
@@ -96,23 +94,21 @@ class TestInitialInterviewNodeBasic:
             "agents.initial_interview.interrupt", return_value="저는 40살이에요"
         ):
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "나이가 어떻게 되세요?"
-                    mock_extract.return_value = {
-                        "exist": True,
-                        "value": 40,
-                        "re_ask": False,
-                        "reasoning": "",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": True,
+                    "value": 40,
+                    "re_ask": False,
+                    "reasoning": "",
+                }
 
-                    state = _base_state(initial_missing_fields=["age"])
-                    result = await initial_interview_node(state)
+                state = _base_state(
+                    initial_missing_fields=["age"],
+                    pending_question="나이가 어떻게 되세요?",
+                )
+                result = await initial_interview_node(state)
 
         msgs = result["messages"]
         assert any(isinstance(m, AIMessage) for m in msgs)
@@ -126,25 +122,21 @@ class TestInitialInterviewNodeExtraction:
     async def test_extracted_field_removed_from_missing(self):
         with patch("agents.initial_interview.interrupt", return_value="40살이에요"):
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "나이가 어떻게 되세요?"
-                    mock_extract.return_value = {
-                        "exist": True,
-                        "value": 40,
-                        "re_ask": False,
-                        "reasoning": "",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": True,
+                    "value": 40,
+                    "re_ask": False,
+                    "reasoning": "",
+                }
 
-                    state = _base_state(
-                        initial_missing_fields=["age", "region", "income_level"]
-                    )
-                    result = await initial_interview_node(state)
+                state = _base_state(
+                    initial_missing_fields=["age", "region", "income_level"],
+                    pending_question="나이가 어떻게 되세요?",
+                )
+                result = await initial_interview_node(state)
 
         assert "age" not in result["initial_missing_fields"]
         assert "region" in result["initial_missing_fields"]
@@ -153,46 +145,42 @@ class TestInitialInterviewNodeExtraction:
     async def test_profile_updated_with_extracted_value(self):
         with patch("agents.initial_interview.interrupt", return_value="40살이에요"):
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "나이가 어떻게 되세요?"
-                    mock_extract.return_value = {
-                        "exist": True,
-                        "value": 40,
-                        "re_ask": False,
-                        "reasoning": "",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": True,
+                    "value": 40,
+                    "re_ask": False,
+                    "reasoning": "",
+                }
 
-                    state = _base_state(initial_missing_fields=["age"])
-                    result = await initial_interview_node(state)
+                state = _base_state(
+                    initial_missing_fields=["age"],
+                    pending_question="나이가 어떻게 되세요?",
+                )
+                result = await initial_interview_node(state)
 
         assert result["user_profile"].age == 40
 
     async def test_extraction_failure_keeps_missing_and_sets_current_field(self):
         with patch("agents.initial_interview.interrupt", return_value="잘 모르겠어요"):
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "나이가 어떻게 되세요?"
-                    mock_extract.return_value = {
-                        "exist": False,
-                        "value": None,
-                        "re_ask": True,
-                        "reasoning": "불명확",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": False,
+                    "value": None,
+                    "re_ask": True,
+                    "reasoning": "불명확",
+                }
 
-                    state = _base_state(initial_missing_fields=["age", "region"])
-                    result = await initial_interview_node(state)
+                state = _base_state(
+                    initial_missing_fields=["age", "region"],
+                    pending_question="나이가 어떻게 되세요?",
+                )
+                result = await initial_interview_node(state)
 
         assert "age" in result["initial_missing_fields"]
         assert result["interview_current_field"] == "age"
@@ -231,28 +219,24 @@ class TestInitialInterviewNodeExtraction:
     async def test_successful_reask_keeps_last_exchange(self):
         with patch("agents.initial_interview.interrupt", return_value="26살이요"):
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "나이를 숫자로 말씀해주세요."
-                    mock_extract.return_value = {
-                        "exist": True,
-                        "value": 26,
-                        "re_ask": False,
-                        "reasoning": "",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": True,
+                    "value": 26,
+                    "re_ask": False,
+                    "reasoning": "",
+                }
 
-                    state = _base_state(
-                        initial_missing_fields=["age"],
-                        interview_current_field="age",
-                        interview_last_question="나이가 어떻게 되세요?",
-                        interview_last_answer="잘 모르겠어요",
-                    )
-                    result = await initial_interview_node(state)
+                state = _base_state(
+                    initial_missing_fields=["age"],
+                    interview_current_field="age",
+                    interview_last_question="나이가 어떻게 되세요?",
+                    interview_last_answer="잘 모르겠어요",
+                    pending_question="나이를 숫자로 말씀해주세요.",
+                )
+                result = await initial_interview_node(state)
 
         assert result["interview_current_field"] is None
         assert result["interview_last_question"] == "나이를 숫자로 말씀해주세요."
@@ -265,75 +249,65 @@ class TestDisabilitySeverityHandling:
             "agents.initial_interview.interrupt", return_value="장애가 있습니다"
         ):
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "장애가 있으신가요?"
-                    mock_extract.return_value = {
-                        "exist": True,
-                        "value": True,
-                        "re_ask": False,
-                        "reasoning": "",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": True,
+                    "value": True,
+                    "re_ask": False,
+                    "reasoning": "",
+                }
 
-                    state = _base_state(initial_missing_fields=["disability"])
-                    result = await initial_interview_node(state)
+                state = _base_state(
+                    initial_missing_fields=["disability"],
+                    pending_question="장애가 있으신가요?",
+                )
+                result = await initial_interview_node(state)
 
         assert "disability_severity" in result["initial_missing_fields"]
 
     async def test_disability_false_removes_severity_from_missing(self):
         with patch("agents.initial_interview.interrupt", return_value="장애 없습니다"):
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "장애가 있으신가요?"
-                    mock_extract.return_value = {
-                        "exist": True,
-                        "value": False,
-                        "re_ask": False,
-                        "reasoning": "",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": True,
+                    "value": False,
+                    "re_ask": False,
+                    "reasoning": "",
+                }
 
-                    state = _base_state(
-                        initial_missing_fields=["disability", "disability_severity"]
-                    )
-                    result = await initial_interview_node(state)
+                state = _base_state(
+                    initial_missing_fields=["disability", "disability_severity"],
+                    pending_question="장애가 있으신가요?",
+                )
+                result = await initial_interview_node(state)
 
         assert "disability_severity" not in result["initial_missing_fields"]
 
     async def test_disability_severity_collected_removes_from_missing(self):
         with patch("agents.initial_interview.interrupt", return_value="중증입니다"):
             with patch(
-                "agents.initial_interview.hwnv_client.ask_question",
+                "agents.initial_interview.hwnv_client.extract_value",
                 new_callable=AsyncMock,
-            ) as mock_ask:
-                with patch(
-                    "agents.initial_interview.hwnv_client.extract_value",
-                    new_callable=AsyncMock,
-                ) as mock_extract:
-                    mock_ask.return_value = "장애 정도가 어떻게 되세요?"
-                    mock_extract.return_value = {
-                        "exist": True,
-                        "value": "중증",
-                        "re_ask": False,
-                        "reasoning": "",
-                    }
+            ) as mock_extract:
+                mock_extract.return_value = {
+                    "exist": True,
+                    "value": "중증",
+                    "re_ask": False,
+                    "reasoning": "",
+                }
 
-                    profile = UserProfile(disability=True)
-                    state = _base_state(
-                        user_profile=profile,
-                        initial_missing_fields=["disability_severity"],
-                    )
-                    result = await initial_interview_node(state)
+                profile = UserProfile(disability=True)
+                state = _base_state(
+                    user_profile=profile,
+                    initial_missing_fields=["disability_severity"],
+                    pending_question="장애 정도가 어떻게 되세요?",
+                )
+                result = await initial_interview_node(state)
 
         assert "disability_severity" not in result["initial_missing_fields"]
         assert result["user_profile"].disability_severity == DisabilitySeverity.SEVERE
