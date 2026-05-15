@@ -46,6 +46,11 @@ def _make_state(**kwargs) -> AgentState:
         "interview_current_field": None,
         "interview_last_question": "",
         "interview_last_answer": "",
+        "pending_question": None,
+        "detail_current_field": None,
+        "detail_last_question": "",
+        "detail_last_answer": "",
+        "extra_field_schemas": [],
     }
     defaults.update(kwargs)
     return defaults  # type: ignore[return-value]
@@ -218,6 +223,71 @@ class TestRagDetailNode:
 
         call_kwargs = mock_infer.call_args.kwargs
         assert call_kwargs["trgter_indvdl"] == []
+
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
+    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
+    async def test_extra_field_schemas_populated_when_extra_missing(
+        self, mock_get_detail, mock_infer, mock_extractor
+    ):
+        """Extra 필드 있으면 field_extractor 호출 → extra_field_schemas 저장."""
+        mock_get_detail.return_value = _DUMMY_DETAIL
+        mock_infer.return_value = ["extra:deposit_amount"]
+        mock_extractor.return_value = [
+            {
+                "key": "deposit_amount",
+                "label": "보증금",
+                "type": "int",
+                "question_hint": "보증금을 물어보세요",
+            }
+        ]
+
+        result = await rag_detail_node(_make_state())
+
+        mock_extractor.assert_called_once()
+        assert result["extra_field_schemas"] == [
+            {
+                "key": "deposit_amount",
+                "label": "보증금",
+                "type": "int",
+                "question_hint": "보증금을 물어보세요",
+            }
+        ]
+
+    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
+    async def test_extra_field_schemas_empty_when_no_extra_missing(
+        self, mock_get_detail, mock_infer
+    ):
+        """Extra 필드 없으면 field_extractor 미호출 → extra_field_schemas 빈 리스트."""
+        mock_get_detail.return_value = _DUMMY_DETAIL
+        mock_infer.return_value = ["housing_type"]
+
+        result = await rag_detail_node(_make_state())
+
+        assert result["extra_field_schemas"] == []
+
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
+    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
+    async def test_extra_field_schemas_empty_on_extractor_error(
+        self, mock_get_detail, mock_infer, mock_extractor
+    ):
+        """field_extractor 실패 → extra_field_schemas 빈 리스트, 노드는 계속 진행."""
+        mock_get_detail.return_value = _DUMMY_DETAIL
+        mock_infer.return_value = ["extra:deposit_amount"]
+        mock_extractor.side_effect = Exception("hwnv 오류")
+
+        result = await rag_detail_node(_make_state())
+
+        assert result["extra_field_schemas"] == []
+        assert result["detail_missing_fields"] == ["extra:deposit_amount"]
 
 
 class TestInferMissingFields:

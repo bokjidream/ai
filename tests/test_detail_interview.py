@@ -1,13 +1,12 @@
 """2단계 인터뷰 에이전트 테스트."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage
 
 from agents.detail_interview import (
-    _DetailExtraction,
-    _extract_profile,
-    _generate_question,
+    _apply_extracted_value,
+    _get_field_info,
     detail_interview_node,
 )
 from graph.state import IncomeLevel, UserProfile, WelfareCandidate
@@ -34,6 +33,11 @@ def _base_state(**overrides) -> dict:
         "document_guidance": "",
         "application_guide": "",
         "final_report": "",
+        "detail_current_field": None,
+        "detail_last_question": "",
+        "detail_last_answer": "",
+        "extra_field_schemas": [],
+        "pending_question": None,
     }
     state.update(overrides)
     return state
@@ -45,11 +49,27 @@ class TestDetailInterviewNodeBasic:
         result = await detail_interview_node(state)
         assert result == {}
 
-    async def test_interrupts_with_question(self, mock_llm):
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_DetailExtraction(disability_type="지체장애")
-        )
-        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+    async def test_generates_question_and_returns_command(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.ask_detail_question",
+            new_callable=AsyncMock,
+            return_value="장애 유형이 어떻게 되세요?",
+        ):
+            state = _base_state(
+                detail_missing_fields=["disability_type"],
+                pending_question=None,
+            )
+            result = await detail_interview_node(state)
+
+        assert hasattr(result, "update")
+        assert result.update["pending_question"] == "장애 유형이 어떻게 되세요?"
+
+    async def test_interrupts_with_question_and_field(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": True, "value": "지체장애", "re_ask": False},
+        ):
             with patch(
                 "agents.detail_interview.interrupt",
                 return_value="지체장애입니다",
@@ -62,15 +82,15 @@ class TestDetailInterviewNodeBasic:
 
         mock_interrupt.assert_called_once()
         call_args = mock_interrupt.call_args[0][0]
-        assert "question" in call_args
-        assert "missing_fields" in call_args
-        assert "disability_type" in call_args["missing_fields"]
+        assert call_args["question"] == "장애 유형이 어떻게 되세요?"
+        assert call_args["field"] == "disability_type"
 
-    async def test_messages_contain_ai_and_human(self, mock_llm):
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_DetailExtraction(disability_type="지체장애")
-        )
-        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+    async def test_messages_contain_ai_and_human(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": True, "value": "지체장애", "re_ask": False},
+        ):
             with patch(
                 "agents.detail_interview.interrupt",
                 return_value="지체장애입니다",
@@ -90,229 +110,218 @@ class TestDetailInterviewNodeBasic:
 
 
 class TestDetailInterviewNodeExtraction:
-    async def test_extracted_fields_removed_from_missing(self, mock_llm):
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_DetailExtraction(
-                disability_type="지체장애", housing_type="자가"
-            )
-        )
-        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
-            with patch(
-                "agents.detail_interview.interrupt", return_value="지체장애, 자가"
-            ):
+    async def test_extracted_field_removed_from_missing(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": True, "value": "지체장애", "re_ask": False},
+        ):
+            with patch("agents.detail_interview.interrupt", return_value="지체장애"):
                 state = _base_state(
-                    detail_missing_fields=[
-                        "disability_type",
-                        "housing_type",
-                        "is_veteran",
-                    ],
-                    pending_question="장애 유형과 주거 형태를 알려주세요.",
+                    detail_missing_fields=["disability_type", "housing_type"],
+                    pending_question="장애 유형이 어떻게 되세요?",
                 )
                 result = await detail_interview_node(state)
 
         assert "disability_type" not in result["detail_missing_fields"]
-        assert "housing_type" not in result["detail_missing_fields"]
-        assert "is_veteran" in result["detail_missing_fields"]
+        assert "housing_type" in result["detail_missing_fields"]
 
-    async def test_profile_updated_with_extracted_fields(self, mock_llm):
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_DetailExtraction(
-                disability_type="지체장애", housing_type="자가"
-            )
-        )
-        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
-            with patch(
-                "agents.detail_interview.interrupt", return_value="지체장애, 자가"
-            ):
+    async def test_profile_updated_with_extracted_field(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": True, "value": "지체장애", "re_ask": False},
+        ):
+            with patch("agents.detail_interview.interrupt", return_value="지체장애"):
                 state = _base_state(
-                    detail_missing_fields=["disability_type", "housing_type"],
-                    pending_question="장애 유형과 주거 형태를 알려주세요.",
+                    detail_missing_fields=["disability_type"],
+                    pending_question="장애 유형이 어떻게 되세요?",
                 )
                 result = await detail_interview_node(state)
 
-        profile = result["user_profile"]
-        assert profile.disability_type == "지체장애"
-        assert profile.housing_type == "자가"
+        assert result["user_profile"].disability_type == "지체장애"
+
+    async def test_detail_current_field_cleared_on_success(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": True, "value": "자가", "re_ask": False},
+        ):
+            with patch("agents.detail_interview.interrupt", return_value="자가입니다"):
+                state = _base_state(
+                    detail_missing_fields=["housing_type"],
+                    detail_current_field="housing_type",
+                    pending_question="주거 형태가 어떻게 되세요?",
+                )
+                result = await detail_interview_node(state)
+
+        assert result["detail_current_field"] is None
+
+    async def test_reask_sets_detail_current_field(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": False, "value": None, "re_ask": True},
+        ):
+            with patch(
+                "agents.detail_interview.interrupt", return_value="잘 모르겠어요"
+            ):
+                state = _base_state(
+                    detail_missing_fields=["disability_type"],
+                    pending_question="장애 유형이 어떻게 되세요?",
+                )
+                result = await detail_interview_node(state)
+
+        assert result["detail_current_field"] == "disability_type"
+        assert result["pending_question"] is None
 
 
 class TestExtraFieldsHandling:
-    async def test_extra_field_stored_in_extra_fields(self, mock_llm):
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_DetailExtraction(extra_fields={"참전유공자": True})
-        )
-        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+    async def test_extra_field_stored_in_extra_fields(self):
+        extra_schemas = [
+            {"key": "참전유공자", "label": "국가보훈 대상 여부", "type": "bool"}
+        ]
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": True, "value": True, "re_ask": False},
+        ):
             with patch(
-                "agents.detail_interview.interrupt",
-                return_value="참전용사입니다",
+                "agents.detail_interview.interrupt", return_value="참전용사입니다"
             ):
                 state = _base_state(
                     detail_missing_fields=["extra:참전유공자"],
+                    extra_field_schemas=extra_schemas,
                     pending_question="국가보훈 대상이신가요?",
                 )
                 result = await detail_interview_node(state)
 
         assert result["user_profile"].extra_fields.get("참전유공자") is True
 
-    async def test_extra_field_removed_from_missing_after_extraction(self, mock_llm):
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_DetailExtraction(extra_fields={"참전유공자": True})
-        )
-        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+    async def test_extra_field_removed_from_missing_after_extraction(self):
+        extra_schemas = [
+            {"key": "참전유공자", "label": "국가보훈 대상 여부", "type": "bool"}
+        ]
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": True, "value": True, "re_ask": False},
+        ):
             with patch(
-                "agents.detail_interview.interrupt",
-                return_value="참전용사입니다",
+                "agents.detail_interview.interrupt", return_value="참전용사입니다"
             ):
                 state = _base_state(
                     detail_missing_fields=["extra:참전유공자"],
+                    extra_field_schemas=extra_schemas,
                     pending_question="국가보훈 대상이신가요?",
                 )
                 result = await detail_interview_node(state)
 
         assert "extra:참전유공자" not in result["detail_missing_fields"]
 
-    async def test_extra_field_remains_in_missing_when_not_extracted(self, mock_llm):
-        mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-            return_value=_DetailExtraction()
-        )
-        with patch("agents.detail_interview.get_llm", return_value=mock_llm):
+    async def test_extra_field_remains_when_not_extracted(self):
+        extra_schemas = [
+            {"key": "참전유공자", "label": "국가보훈 대상 여부", "type": "bool"}
+        ]
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": False, "value": None, "re_ask": True},
+        ):
             with patch("agents.detail_interview.interrupt", return_value="모름"):
                 state = _base_state(
                     detail_missing_fields=["extra:참전유공자"],
+                    extra_field_schemas=extra_schemas,
                     pending_question="국가보훈 대상이신가요?",
                 )
                 result = await detail_interview_node(state)
 
         assert "extra:참전유공자" in result["detail_missing_fields"]
 
-    async def test_existing_extra_fields_preserved_on_update(self):
+    async def test_unknown_extra_field_skipped(self):
+        state = _base_state(
+            detail_missing_fields=["extra:unknown_field"],
+            extra_field_schemas=[],
+        )
+        result = await detail_interview_node(state)
+        assert "extra:unknown_field" not in result["detail_missing_fields"]
+
+    def test_existing_extra_fields_preserved_on_update(self):
         profile = UserProfile(extra_fields={"기존키": "기존값"})
-        missing = ["extra:새키"]
-
-        with patch("agents.detail_interview.get_llm") as mock_get_llm:
-            mock_llm = MagicMock()
-            mock_llm.with_structured_output.return_value.ainvoke = AsyncMock(
-                return_value=_DetailExtraction(extra_fields={"새키": "새값"})
-            )
-            mock_get_llm.return_value = mock_llm
-
-            new_profile, _, _ = await _extract_profile(profile, missing, "새값", [])
-
+        new_profile = _apply_extracted_value(profile, "extra:새키", "새값")
         assert new_profile.extra_fields["기존키"] == "기존값"
         assert new_profile.extra_fields["새키"] == "새값"
 
 
-class TestStructuredOutputRetry:
-    async def test_all_fields_remain_on_max_retry_failure(self):
+class TestChildrenAgesParsing:
+    def test_children_ages_parsed_from_string(self):
         profile = UserProfile()
-        missing = ["disability_type", "housing_type"]
+        new_profile = _apply_extracted_value(profile, "children_ages", "5 8 12")
+        assert new_profile.children_ages == [5, 8, 12]
 
-        with patch("agents.detail_interview.get_llm") as mock_get_llm:
-            mock_llm = MagicMock()
-            mock_extractor = AsyncMock()
-            mock_extractor.ainvoke = AsyncMock(side_effect=Exception("파싱 실패"))
-            mock_llm.with_structured_output.return_value = mock_extractor
-            mock_get_llm.return_value = mock_llm
-
-            new_profile, new_missing, failed = await _extract_profile(
-                profile, missing, "내 답변", []
-            )
-
-        assert new_profile == profile
-        assert new_missing == missing
-        assert failed is True
-
-    async def test_retries_exactly_max_retry_plus_one_times(self):
+    def test_children_ages_parsed_with_comma(self):
         profile = UserProfile()
+        new_profile = _apply_extracted_value(profile, "children_ages", "3, 7")
+        assert new_profile.children_ages == [3, 7]
 
-        with patch("agents.detail_interview.get_llm") as mock_get_llm:
-            mock_llm = MagicMock()
-            mock_extractor = AsyncMock()
-            mock_extractor.ainvoke = AsyncMock(side_effect=Exception("파싱 실패"))
-            mock_llm.with_structured_output.return_value = mock_extractor
-            mock_get_llm.return_value = mock_llm
-
-            await _extract_profile(profile, ["disability_type"], "내 답변", [])
-
-            assert mock_extractor.ainvoke.call_count == 3  # 1 + _MAX_RETRY(2)
-
-    async def test_succeeds_on_second_attempt(self):
+    def test_children_ages_non_digit_ignored(self):
         profile = UserProfile()
-        missing = ["housing_type"]
+        new_profile = _apply_extracted_value(profile, "children_ages", "5살, 8살")
+        assert new_profile.children_ages == [5, 8]
 
-        with patch("agents.detail_interview.get_llm") as mock_get_llm:
-            mock_llm = MagicMock()
-            mock_extractor = AsyncMock()
-            mock_extractor.ainvoke = AsyncMock(
-                side_effect=[
-                    Exception("1차 실패"),
-                    _DetailExtraction(housing_type="전세"),
-                ]
+
+class TestGetFieldInfo:
+    def test_standard_field_returns_info(self):
+        info = _get_field_info("disability_type", [])
+        assert info is not None
+        assert info["key"] == "disability_type"
+
+    def test_unknown_field_returns_none(self):
+        info = _get_field_info("unknown_field", [])
+        assert info is None
+
+    def test_extra_field_found_in_schemas(self):
+        schemas = [{"key": "my_key", "label": "내 필드", "type": "bool"}]
+        info = _get_field_info("extra:my_key", schemas)
+        assert info is not None
+        assert info["key"] == "my_key"
+
+    def test_extra_field_not_in_schemas_returns_none(self):
+        info = _get_field_info("extra:missing_key", [])
+        assert info is None
+
+
+class TestErrorHandling:
+    async def test_ask_question_error_returns_error_message(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.ask_detail_question",
+            new_callable=AsyncMock,
+            side_effect=Exception("연결 실패"),
+        ):
+            state = _base_state(
+                detail_missing_fields=["disability_type"],
+                pending_question=None,
             )
-            mock_llm.with_structured_output.return_value = mock_extractor
-            mock_get_llm.return_value = mock_llm
+            result = await detail_interview_node(state)
 
-            new_profile, new_missing, failed = await _extract_profile(
-                profile, missing, "전세입니다", []
-            )
+        msgs = result.get("messages", [])
+        assert any(isinstance(m, AIMessage) for m in msgs)
 
-        assert new_profile.housing_type == "전세"
-        assert "housing_type" not in new_missing
-        assert failed is False
+    async def test_extract_value_error_keeps_reask_state(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            side_effect=Exception("파싱 실패"),
+        ):
+            with patch(
+                "agents.detail_interview.interrupt", return_value="지체장애입니다"
+            ):
+                state = _base_state(
+                    detail_missing_fields=["disability_type"],
+                    pending_question="장애 유형이 어떻게 되세요?",
+                )
+                result = await detail_interview_node(state)
 
-
-class TestGenerateQuestion:
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_returns_llm_content(self, mock_get_llm, mock_load_prompt, mock_llm):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.ainvoke = AsyncMock(
-            return_value=MagicMock(content="장애 유형이 어떻게 되세요?")
-        )
-        selected = WelfareCandidate(
-            serv_id="SVC001", serv_nm="장애인 활동지원", serv_dgst="..."
-        )
-
-        question = await _generate_question(
-            UserProfile(), ["disability_type"], selected, []
-        )
-
-        assert question == "장애 유형이 어떻게 되세요?"
-
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_history_included_in_messages(
-        self, mock_get_llm, mock_load_prompt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="질문"))
-        selected = WelfareCandidate(
-            serv_id="SVC001", serv_nm="장애인 활동지원", serv_dgst="..."
-        )
-
-        history = [HumanMessage(content="안녕하세요"), AIMessage(content="안녕하세요!")]
-        await _generate_question(UserProfile(), ["disability_type"], selected, history)
-
-        call_messages = mock_llm.ainvoke.call_args[0][0]
-        assert any(m.content == "안녕하세요" for m in call_messages)
-
-    @patch("agents.detail_interview.load_prompt", return_value="system prompt")
-    @patch("agents.detail_interview.get_llm")
-    async def test_service_context_included_in_instruction(
-        self, mock_get_llm, mock_load_prompt, mock_llm
-    ):
-        mock_get_llm.return_value = mock_llm
-        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="질문"))
-        selected = WelfareCandidate(
-            serv_id="SVC001",
-            serv_nm="장애인 활동지원",
-            serv_dgst="장애인 자립 지원 서비스",
-        )
-
-        await _generate_question(UserProfile(), ["disability_type"], selected, [])
-
-        call_messages = mock_llm.ainvoke.call_args[0][0]
-        last_human = next(
-            m for m in reversed(call_messages) if isinstance(m, HumanMessage)
-        )
-        assert "장애인 활동지원" in last_human.content
-        assert "장애인 자립 지원 서비스" in last_human.content
+        assert result["detail_current_field"] == "disability_type"
+        assert result["pending_question"] is None
+        assert "disability_type" in result["detail_missing_fields"]

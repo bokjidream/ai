@@ -113,6 +113,10 @@ def _initial_state() -> dict:
         "interview_last_question": "",
         "interview_last_answer": "",
         "pending_question": None,
+        "detail_current_field": None,
+        "detail_last_question": "",
+        "detail_last_answer": "",
+        "extra_field_schemas": [],
     }
 
 

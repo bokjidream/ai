@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
+import tools.hwnv_client as hwnv_client
 import tools.rag_client as rag_client
 from tools.llm import get_llm
 
@@ -128,7 +129,22 @@ async def rag_detail_node(state: AgentState) -> dict:
         trgter_indvdl=detail.get("trgter_indvdl", []),
     )
 
+    extra_field_schemas: list[dict] = []
+    if any(f.startswith("extra:") for f in missing_fields):
+        try:
+            extra_field_schemas = await hwnv_client.extract_extra_field_schemas(
+                {
+                    "serv_nm": detail.get("serv_nm", ""),
+                    "tgtr_dtl_cn": detail.get("tgtr_dtl_cn", ""),
+                    "slct_crit_cn": detail.get("slct_crit_cn", ""),
+                    "trgter_indvdl": detail.get("trgter_indvdl", []),
+                }
+            )
+        except Exception as e:
+            print(f"[hwnv field_extractor 오류] {type(e).__name__}: {e}")
+
     return {
         "selected_service": updated,
         "detail_missing_fields": missing_fields,
+        "extra_field_schemas": extra_field_schemas,
     }
