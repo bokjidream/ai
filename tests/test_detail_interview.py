@@ -325,3 +325,21 @@ class TestErrorHandling:
         assert result["detail_current_field"] == "disability_type"
         assert result["pending_question"] is None
         assert "disability_type" in result["detail_missing_fields"]
+
+    async def test_exist_false_reask_false_skips_field(self):
+        with patch(
+            "agents.detail_interview.hwnv_client.extract_detail_value",
+            new_callable=AsyncMock,
+            return_value={"exist": False, "value": None, "re_ask": False},
+        ):
+            with patch("agents.detail_interview.interrupt", return_value="없습니다"):
+                state = _base_state(
+                    detail_missing_fields=["disability_type", "housing_type"],
+                    pending_question="장애 유형이 어떻게 되세요?",
+                )
+                result = await detail_interview_node(state)
+
+        assert "disability_type" not in result["detail_missing_fields"]
+        assert "housing_type" in result["detail_missing_fields"]
+        assert result["detail_current_field"] is None
+        assert result["pending_question"] is None

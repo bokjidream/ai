@@ -342,3 +342,25 @@ class TestClassifySchemas:
         regular, extra = _classify_schemas(schemas, profile)
         assert "is_veteran" in regular
         assert any(s["key"] == "custom_field" for s in extra)
+
+    def test_children_field_excluded_when_has_children_false(self):
+        profile = UserProfile(has_children=False)
+        schemas = [
+            {"key": "has_children_age", "label": "자녀 연령", "type": "int"},
+            {"key": "deposit_amount", "label": "보증금", "type": "int"},
+        ]
+        regular, extra = _classify_schemas(schemas, profile)
+        assert not any(s["key"] == "has_children_age" for s in extra)
+        assert any(s["key"] == "deposit_amount" for s in extra)
+
+    def test_children_field_included_when_has_children_true(self):
+        profile = UserProfile(has_children=True)
+        schema = {"key": "has_children_age", "label": "자녀 연령", "type": "int"}
+        regular, extra = _classify_schemas([schema], profile)
+        assert schema in extra
+
+    def test_children_field_excluded_by_label_keyword(self):
+        profile = UserProfile(has_children=False)
+        schema = {"key": "child_info", "label": "자녀 나이", "type": "string"}
+        regular, extra = _classify_schemas([schema], profile)
+        assert extra == []

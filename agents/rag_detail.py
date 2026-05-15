@@ -23,6 +23,15 @@ _STAGE_2_FIELDS = [
 ]
 
 
+def _is_children_field(key: str, label: str) -> bool:
+    return (
+        "children" in key.lower()
+        or "child" in key.lower()
+        or "자녀" in label
+        or "아동" in label
+    )
+
+
 def _classify_schemas(
     schemas: list[dict],
     profile: UserProfile,
@@ -43,6 +52,10 @@ def _classify_schemas(
             if getattr(profile, key, None) is None:
                 regular_missing.append(key)
         elif key not in profile.extra_fields:
+            if profile.has_children is False and _is_children_field(
+                key, schema.get("label", "")
+            ):
+                continue
             extra_schemas.append(schema)
 
     if not profile.disability:

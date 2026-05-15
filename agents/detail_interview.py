@@ -163,6 +163,17 @@ async def detail_interview_node(state: AgentState) -> dict | Command:
             "pending_question": None,
         }
 
+    if not result.get("re_ask"):
+        new_missing = [f for f in missing if f != field]
+        return {
+            "messages": [ai_msg, human_msg],
+            "detail_missing_fields": new_missing,
+            "detail_current_field": None,
+            "detail_last_question": question,
+            "detail_last_answer": user_answer,
+            "pending_question": None,
+        }
+
     return {
         "messages": [ai_msg, human_msg],
         "detail_missing_fields": missing,
