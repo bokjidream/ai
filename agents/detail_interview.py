@@ -2,191 +2,183 @@
 
 from __future__ import annotations
 
-import os
+import re
 from typing import TYPE_CHECKING
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command, interrupt
-from pydantic import BaseModel
 
-from graph.state import UserProfile  # noqa: TCH001
-from tools.llm import get_llm
-from tools.prompt_loader import load_prompt
+from tools import hwnv_client
 
 if TYPE_CHECKING:
-    from graph.state import AgentState, WelfareCandidate
+    from graph.state import AgentState, UserProfile
 
-_FIELD_LABELS: dict[str, str] = {
-    "disability_type": "장애 유형",
-    "disability_grade": "장애 등급",
-    "children_ages": "자녀 나이",
-    "housing_type": "주거 형태",
-    "household_type": "가구 유형",
-    "is_veteran": "국가보훈 대상 여부",
-    "is_single_parent": "한부모 가정 여부",
+_FIELD_INFO: dict[str, dict] = {
+    "disability_type": {
+        "key": "disability_type",
+        "label": "장애 유형",
+        "type": "string",
+        "question_hint": "장애 유형(지체, 시각, 청각, 지적 등)을 부드럽게 물어보세요",
+    },
+    "disability_grade": {
+        "key": "disability_grade",
+        "label": "장애 등급",
+        "type": "string",
+        "question_hint": "장애 등급을 물어보세요",
+    },
+    "children_ages": {
+        "key": "children_ages",
+        "label": "자녀 나이",
+        "type": "string",
+        "question_hint": "자녀들의 나이를 모두 알려달라고 물어보세요",
+    },
+    "housing_type": {
+        "key": "housing_type",
+        "label": "주거 형태",
+        "type": "enum",
+        "enum_values": ["자가", "전세", "월세", "공공임대", "기타"],
+        "question_hint": "현재 주거 형태를 선택지로 물어보세요",
+    },
+    "household_type": {
+        "key": "household_type",
+        "label": "가구 유형",
+        "type": "string",
+        "question_hint": "가구 형태(1인 가구, 부부 가구, 조손 가구 등)를 물어보세요",
+    },
+    "is_veteran": {
+        "key": "is_veteran",
+        "label": "국가보훈 대상 여부",
+        "type": "bool",
+        "question_hint": "국가보훈처에 등록된 보훈 대상자인지 물어보세요",
+    },
+    "is_single_parent": {
+        "key": "is_single_parent",
+        "label": "한부모 가정 여부",
+        "type": "bool",
+        "question_hint": "한부모 가정(편부/편모 가정)에 해당하는지 물어보세요",
+    },
 }
 
-_MAX_RETRY = int(os.getenv("LLM_MAX_RETRY", "2"))
-_HISTORY_WINDOW = int(os.getenv("HISTORY_WINDOW_SIZE", "10"))
-_RETRY_MSG = "이해하지 못했습니다. 좀 더 구체적으로 말씀해주시겠어요?"
+
+def _get_field_info(field: str, extra_schemas: list[dict]) -> dict | None:
+    """필드명에 해당하는 field_info 딕셔너리를 반환합니다."""
+    if field in _FIELD_INFO:
+        return _FIELD_INFO[field]
+    if field.startswith("extra:"):
+        key = field.removeprefix("extra:")
+        return next((s for s in extra_schemas if s.get("key") == key), None)
+    return None
 
 
-class _DetailExtraction(BaseModel):
-    """structured output 스키마: 대화에서 추출된 2단계 프로필 필드."""
-
-    disability_type: str | None = None
-    disability_grade: str | None = None
-    children_ages: list[int] | None = None
-    housing_type: str | None = None
-    household_type: str | None = None
-    is_veteran: bool | None = None
-    is_single_parent: bool | None = None
-    extra_fields: dict[str, str | int | bool] = {}
-
-
-async def _generate_question(
+def _apply_extracted_value(
     profile: UserProfile,
-    missing: list[str],
-    selected: WelfareCandidate,
-    history: list,
-) -> str:
-    """선택된 서비스 자격 요건을 참고하여 누락 필드에 대한 질문을 생성합니다."""
-    system_prompt = load_prompt("detail_interview")
+    field: str,
+    value,
+) -> UserProfile:
+    """추출된 값을 UserProfile에 적용합니다."""
+    if field.startswith("extra:"):
+        key = field.removeprefix("extra:")
+        merged = {**profile.extra_fields, key: value}
+        return profile.model_copy(update={"extra_fields": merged})
 
-    missing_labels = [_FIELD_LABELS.get(f, f.removeprefix("extra:")) for f in missing]
-    collected = {
-        k: v
-        for k, v in profile.model_dump(exclude_none=True).items()
-        if k not in ("is_elderly", "extra_fields")
-    }
-    if profile.extra_fields:
-        collected["extra_fields"] = profile.extra_fields
+    if field == "children_ages" and isinstance(value, str):
+        ages = [int(m) for m in re.findall(r"\d+", value)]
+        value = ages if ages else None
 
-    instruction = (
-        f"[시스템] 선택된 서비스: {selected.serv_nm}\n"
-        f"[시스템] 서비스 설명: {selected.serv_dgst}\n"
-        f"[시스템] 아직 수집하지 못한 정보: {', '.join(missing_labels)}\n"
-        f"[시스템] 현재까지 파악된 정보: {collected}"
-    )
-    messages = [
-        SystemMessage(content=system_prompt),
-        *history,
-        HumanMessage(content=instruction),
-    ]
-    response = await get_llm().ainvoke(messages)
-    return response.content
-
-
-async def _extract_profile(
-    profile: UserProfile,
-    missing: list[str],
-    user_answer: str,
-    history: list,
-) -> tuple[UserProfile, list[str], bool]:
-    """사용자 답변에서 2단계 프로필 필드를 추출합니다.
-
-    실패 시 최대 LLM_MAX_RETRY회 재시도.
-    반환값: (profile, missing, extraction_failed)
-    - extraction_failed=True: 모든 재시도 소진, 기존 profile/missing 유지
-    "extra:KEY" 접두사 필드는 user_profile.extra_fields에 저장합니다.
-    """
-    regular_missing = [f for f in missing if not f.startswith("extra:")]
-    extra_missing = [f for f in missing if f.startswith("extra:")]
-    extra_keys_missing = [f.removeprefix("extra:") for f in extra_missing]
-
-    extract_system = (
-        "사용자의 답변에서 복지 서비스 신청용 개인 정보를 추출하세요.\n"
-        "사용자가 '없음', '없어', '없다', '아니오', '해당 없음' 등"
-        " 부정적 답변을 한 경우:\n"
-        "  - str 타입 필드면 '없음'으로 설정하세요\n"
-        "  - bool 타입 필드면 false로 설정하세요\n"
-        "진짜로 불확실한 경우에만 null로 두세요. 추론하거나 가정하지 마세요.\n"
-        f"추출 대상 필드: {', '.join(missing)}"
-    )
-    messages = [
-        SystemMessage(content=extract_system),
-        *history,
-        HumanMessage(content=user_answer),
-    ]
-
-    extractor = get_llm().with_structured_output(_DetailExtraction)
-    extraction: _DetailExtraction | None = None
-    for _ in range(_MAX_RETRY + 1):
-        try:
-            extraction = await extractor.ainvoke(messages)
-            break
-        except Exception:
-            continue
-
-    if extraction is None:
-        print(f"[DEBUG] extraction 완전 실패 (missing: {missing})")
-        return profile, missing, True
-
-    print(f"[DEBUG] 질문한 필드: {missing}")
-    print(f"[DEBUG] extraction 결과: {extraction.model_dump()}")
-
-    # 일반 필드 업데이트
-    regular_updates = {
-        k: v
-        for k, v in extraction.model_dump(exclude={"extra_fields"}).items()
-        if v is not None
-    }
-    new_profile = profile.model_copy(update=regular_updates)
-
-    # extra_fields 업데이트
-    if extraction.extra_fields:
-        merged_extra = {**new_profile.extra_fields, **extraction.extra_fields}
-        new_profile = new_profile.model_copy(update={"extra_fields": merged_extra})
-
-    # new_missing 계산
-    new_missing: list[str] = []
-    for field in regular_missing:
-        if getattr(new_profile, field, None) is None:
-            new_missing.append(field)
-    for key in extra_keys_missing:
-        if key not in new_profile.extra_fields:
-            new_missing.append(f"extra:{key}")
-
-    return new_profile, new_missing, False
+    if value is not None:
+        return profile.model_copy(update={field: value})
+    return profile
 
 
 async def detail_interview_node(state: AgentState) -> dict | Command:
-    """2단계 인터뷰: 선택된 서비스의 자격 요건 기반으로 특화 정보를 수집합니다."""
-    profile = state["user_profile"]
+    """2단계 인터뷰: hwnv detail_asker/detail_interviewer로 필드별 정보를 수집합니다."""
     missing = list(state["detail_missing_fields"])
-    selected = state["selected_service"]
-
     if not missing:
         return {}
 
-    history = list(state["messages"])[-_HISTORY_WINDOW:]
+    extra_schemas: list[dict] = state.get("extra_field_schemas", [])
+    current_field: str | None = state.get("detail_current_field")
+    is_reask = current_field is not None
+    field = current_field or missing[0]
+
+    field_info = _get_field_info(field, extra_schemas)
+    if field_info is None:
+        print(f"[DEBUG] 알 수 없는 2단계 필드 스킵: {field}")
+        return {"detail_missing_fields": [f for f in missing if f != field]}
 
     question = state.get("pending_question")
     if question is None:
-        question = await _generate_question(profile, missing, selected, history)
+        try:
+            question = await hwnv_client.ask_detail_question(
+                field_info=field_info,
+                re_ask=is_reask,
+                pre_assistant_message=state.get("detail_last_question", ""),
+                pre_user_message=state.get("detail_last_answer", ""),
+            )
+        except Exception as e:
+            print(f"[hwnv ask_detail_question 오류] {type(e).__name__}: {e}")
+            error_msg = (
+                "죄송합니다. 질문 생성 중 오류가 발생했습니다. "
+                "잠시 후 다시 시도해 주세요."
+            )
+            return {"messages": [AIMessage(content=error_msg)]}
         return Command(
             update={"pending_question": question},
             goto="detail_interview",
         )
 
-    ai_message = AIMessage(content=question)
+    user_answer: str = interrupt({"question": question, "field": field})
 
-    user_answer: str = interrupt({"question": question, "missing_fields": missing})
+    try:
+        result = await hwnv_client.extract_detail_value(
+            field_info, question, user_answer
+        )
+    except Exception as e:
+        print(f"[hwnv extract_detail_value 오류] {type(e).__name__}: {e}")
+        return {
+            "detail_missing_fields": missing,
+            "detail_current_field": field,
+            "detail_last_question": question,
+            "detail_last_answer": user_answer,
+            "pending_question": None,
+        }
 
-    new_profile, new_missing, extraction_failed = await _extract_profile(
-        profile,
-        missing,
-        user_answer,
-        (history + [ai_message])[-_HISTORY_WINDOW:],
-    )
+    ai_msg = AIMessage(content=question)
+    human_msg = HumanMessage(content=user_answer)
 
-    messages = [ai_message, HumanMessage(content=user_answer)]
-    if extraction_failed:
-        messages.append(AIMessage(content=_RETRY_MSG))
+    print(f"[DEBUG] 2단계 필드: {field}, 추출 결과: {result}")
+
+    if result.get("exist") and result.get("value") is not None:
+        new_profile = _apply_extracted_value(
+            state["user_profile"], field, result["value"]
+        )
+        new_missing = [f for f in missing if f != field]
+        return {
+            "messages": [ai_msg, human_msg],
+            "user_profile": new_profile,
+            "detail_missing_fields": new_missing,
+            "detail_current_field": None,
+            "detail_last_question": question,
+            "detail_last_answer": user_answer,
+            "pending_question": None,
+        }
+
+    if not result.get("re_ask"):
+        new_missing = [f for f in missing if f != field]
+        return {
+            "messages": [ai_msg, human_msg],
+            "detail_missing_fields": new_missing,
+            "detail_current_field": None,
+            "detail_last_question": question,
+            "detail_last_answer": user_answer,
+            "pending_question": None,
+        }
 
     return {
-        "messages": messages,
-        "user_profile": new_profile,
-        "detail_missing_fields": new_missing,
+        "messages": [ai_msg, human_msg],
+        "detail_missing_fields": missing,
+        "detail_current_field": field,
+        "detail_last_question": question,
+        "detail_last_answer": user_answer,
         "pending_question": None,
     }

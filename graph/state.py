@@ -110,3 +110,8 @@ class AgentState(TypedDict):
     pending_question: (
         str | None
     )  # interrupt 전 생성된 질문 캐시 (resume 중복 호출 방지, 1·2단계 공용)
+    # 2단계 인터뷰 재질문 추적 (detail_asker/detail_interviewer re_ask 흐름용)
+    detail_current_field: str | None  # 현재 처리 중인 필드 (None=새 필드)
+    detail_last_question: str  # 직전 2단계 봇 질문
+    detail_last_answer: str  # 직전 2단계 사용자 답변
+    extra_field_schemas: list[dict]  # field_extractor가 생성한 extra 필드 스키마

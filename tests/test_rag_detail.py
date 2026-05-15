@@ -1,11 +1,10 @@
 """RAG 상세 조회 노드 테스트."""
 
-import os
 from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage
 
-from agents.rag_detail import _infer_missing_fields, _RequiredFields, rag_detail_node
+from agents.rag_detail import _classify_schemas, rag_detail_node
 from graph.state import (
     AgentState,
     EmploymentStatus,
@@ -46,6 +45,11 @@ def _make_state(**kwargs) -> AgentState:
         "interview_current_field": None,
         "interview_last_question": "",
         "interview_last_answer": "",
+        "pending_question": None,
+        "detail_current_field": None,
+        "detail_last_question": "",
+        "detail_last_answer": "",
+        "extra_field_schemas": [],
     }
     defaults.update(kwargs)
     return defaults  # type: ignore[return-value]
@@ -64,13 +68,16 @@ _DUMMY_DETAIL = {
 
 
 class TestRagDetailNode:
-    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
     async def test_updates_selected_service_on_success(
-        self, mock_get_detail, mock_infer
+        self, mock_get_detail, mock_extractor
     ):
         mock_get_detail.return_value = _DUMMY_DETAIL
-        mock_infer.return_value = []
+        mock_extractor.return_value = []
 
         result = await rag_detail_node(_make_state())
 
@@ -83,13 +90,16 @@ class TestRagDetailNode:
         )
         assert updated.application_url == "https://www.bokjiro.go.kr"
 
-    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
     async def test_preserves_existing_fields_on_success(
-        self, mock_get_detail, mock_infer
+        self, mock_get_detail, mock_extractor
     ):
         mock_get_detail.return_value = _DUMMY_DETAIL
-        mock_infer.return_value = []
+        mock_extractor.return_value = []
 
         result = await rag_detail_node(_make_state())
 
@@ -138,16 +148,19 @@ class TestRagDetailNode:
 
         assert result["detail_missing_fields"] == []
 
-    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
     async def test_missing_optional_fields_default_to_empty(
-        self, mock_get_detail, mock_infer
+        self, mock_get_detail, mock_extractor
     ):
         mock_get_detail.return_value = {
             "serv_id": "WLF-001",
             "serv_nm": "기초생활수급자 생계급여",
         }
-        mock_infer.return_value = []
+        mock_extractor.return_value = []
 
         result = await rag_detail_node(_make_state())
 
@@ -157,41 +170,109 @@ class TestRagDetailNode:
         assert updated.application_url is None
         assert updated.detail_fetched is True
 
-    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
-    async def test_sets_detail_missing_fields_from_llm(
-        self, mock_get_detail, mock_infer
+    async def test_standard_fields_in_detail_missing_fields(
+        self, mock_get_detail, mock_extractor
     ):
         mock_get_detail.return_value = _DUMMY_DETAIL
-        mock_infer.return_value = ["housing_type", "is_veteran"]
+        mock_extractor.return_value = [
+            {
+                "key": "housing_type",
+                "label": "주거 형태",
+                "type": "enum",
+                "enum_values": ["자가", "전세", "월세"],
+            },
+            {"key": "is_veteran", "label": "국가보훈 대상 여부", "type": "bool"},
+        ]
 
         result = await rag_detail_node(_make_state())
 
-        assert result["detail_missing_fields"] == ["housing_type", "is_veteran"]
+        assert "housing_type" in result["detail_missing_fields"]
+        assert "is_veteran" in result["detail_missing_fields"]
 
-    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
-    async def test_passes_eligibility_fields_to_infer(
-        self, mock_get_detail, mock_infer
+    async def test_extra_fields_prefixed_in_detail_missing_fields(
+        self, mock_get_detail, mock_extractor
     ):
         mock_get_detail.return_value = _DUMMY_DETAIL
-        mock_infer.return_value = []
+        mock_extractor.return_value = [
+            {"key": "deposit_amount", "label": "보증금", "type": "int"},
+        ]
+
+        result = await rag_detail_node(_make_state())
+
+        assert "extra:deposit_amount" in result["detail_missing_fields"]
+
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
+    @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
+    async def test_extra_field_schemas_stored_in_state(
+        self, mock_get_detail, mock_extractor
+    ):
+        schema = {"key": "deposit_amount", "label": "보증금", "type": "int"}
+        mock_get_detail.return_value = _DUMMY_DETAIL
+        mock_extractor.return_value = [schema]
+
+        result = await rag_detail_node(_make_state())
+
+        assert schema in result["extra_field_schemas"]
+
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
+    @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
+    async def test_passes_service_info_to_field_extractor(
+        self, mock_get_detail, mock_extractor
+    ):
+        mock_get_detail.return_value = _DUMMY_DETAIL
+        mock_extractor.return_value = []
 
         await rag_detail_node(_make_state())
 
-        call_kwargs = mock_infer.call_args.kwargs
-        assert call_kwargs["tgtr_dtl_cn"] == _DUMMY_DETAIL["tgtr_dtl_cn"]
-        assert call_kwargs["slct_crit_cn"] == _DUMMY_DETAIL["slct_crit_cn"]
-        assert call_kwargs["trgter_indvdl"] == _DUMMY_DETAIL["trgter_indvdl"]
+        call_args = mock_extractor.call_args[0][0]
+        assert call_args["serv_nm"] == _DUMMY_DETAIL["serv_nm"]
+        assert call_args["tgtr_dtl_cn"] == _DUMMY_DETAIL["tgtr_dtl_cn"]
+        assert call_args["slct_crit_cn"] == _DUMMY_DETAIL["slct_crit_cn"]
+        assert call_args["trgter_indvdl"] == _DUMMY_DETAIL["trgter_indvdl"]
 
-    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
+    @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
+    async def test_field_extractor_error_returns_empty_missing(
+        self, mock_get_detail, mock_extractor
+    ):
+        mock_get_detail.return_value = _DUMMY_DETAIL
+        mock_extractor.side_effect = Exception("hwnv 오류")
+
+        result = await rag_detail_node(_make_state())
+
+        assert result["detail_missing_fields"] == []
+        assert result["extra_field_schemas"] == []
+
+    @patch(
+        "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
     async def test_first_attempt_fails_second_succeeds(
-        self, mock_get_detail, mock_infer
+        self, mock_get_detail, mock_extractor
     ):
         """RAG 첫 시도 실패 → 두 번째 성공 → 정상 처리."""
         mock_get_detail.side_effect = [Exception("일시 오류"), _DUMMY_DETAIL]
-        mock_infer.return_value = []
+        mock_extractor.return_value = []
 
         result = await rag_detail_node(_make_state())
 
@@ -202,233 +283,84 @@ class TestRagDetailNode:
             "신분증",
         ]
 
-    @patch("agents.rag_detail._infer_missing_fields", new_callable=AsyncMock)
-    @patch("agents.rag_detail.rag_client.get_detail", new_callable=AsyncMock)
-    async def test_missing_trgter_indvdl_passes_empty_list_to_infer(
-        self, mock_get_detail, mock_infer
-    ):
-        """trgter_indvdl 없는 응답 → 빈 리스트로 _infer_missing_fields 호출."""
-        detail_without_trgter = {
-            k: v for k, v in _DUMMY_DETAIL.items() if k != "trgter_indvdl"
-        }
-        mock_get_detail.return_value = detail_without_trgter
-        mock_infer.return_value = []
 
-        await rag_detail_node(_make_state())
+class TestClassifySchemas:
+    """_classify_schemas 단위 테스트."""
 
-        call_kwargs = mock_infer.call_args.kwargs
-        assert call_kwargs["trgter_indvdl"] == []
+    def test_standard_field_goes_to_regular_missing(self):
+        profile = UserProfile(disability=False)
+        schemas = [{"key": "housing_type", "label": "주거 형태", "type": "enum"}]
+        regular, extra = _classify_schemas(schemas, profile)
+        assert "housing_type" in regular
+        assert extra == []
 
+    def test_unknown_field_goes_to_extra_schemas(self):
+        profile = UserProfile(disability=False)
+        schema = {"key": "deposit_amount", "label": "보증금", "type": "int"}
+        regular, extra = _classify_schemas([schema], profile)
+        assert regular == []
+        assert schema in extra
 
-class TestInferMissingFields:
-    """_infer_missing_fields 단위 테스트 — get_llm만 mock."""
+    def test_already_filled_standard_field_skipped(self):
+        profile = UserProfile(disability=False, housing_type="자가")
+        schemas = [{"key": "housing_type", "label": "주거 형태", "type": "enum"}]
+        regular, extra = _classify_schemas(schemas, profile)
+        assert "housing_type" not in regular
 
-    @patch("agents.rag_detail.get_llm")
-    async def test_returns_fields_not_in_profile(self, mock_get_llm):
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(
-                regular_fields=["housing_type", "is_veteran"], extra_fields=[]
-            )
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
+    def test_already_filled_extra_field_skipped(self):
+        profile = UserProfile(disability=False, extra_fields={"deposit": 5000})
+        schemas = [{"key": "deposit", "label": "보증금", "type": "int"}]
+        regular, extra = _classify_schemas(schemas, profile)
+        assert extra == []
 
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(
-            profile, "대상자", "선정기준", ["저소득층"]
-        )
+    def test_disability_fields_excluded_when_disability_false(self):
+        profile = UserProfile(disability=False)
+        schemas = [
+            {"key": "disability_type", "label": "장애 유형", "type": "string"},
+            {"key": "disability_grade", "label": "장애 등급", "type": "string"},
+            {"key": "housing_type", "label": "주거 형태", "type": "enum"},
+        ]
+        regular, _ = _classify_schemas(schemas, profile)
+        assert "disability_type" not in regular
+        assert "disability_grade" not in regular
+        assert "housing_type" in regular
 
-        assert "housing_type" in result
-        assert "is_veteran" in result
+    def test_disability_fields_included_when_disability_true(self):
+        profile = UserProfile(disability=True)
+        schemas = [
+            {"key": "disability_type", "label": "장애 유형", "type": "string"},
+        ]
+        regular, _ = _classify_schemas(schemas, profile)
+        assert "disability_type" in regular
 
-    @patch("agents.rag_detail.get_llm")
-    async def test_skips_already_filled_fields(self, mock_get_llm):
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(
-                regular_fields=["housing_type", "is_veteran"], extra_fields=[]
-            )
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
+    def test_mixed_standard_and_extra_fields(self):
+        profile = UserProfile(disability=False)
+        schemas = [
+            {"key": "is_veteran", "label": "보훈 대상", "type": "bool"},
+            {"key": "custom_field", "label": "커스텀", "type": "string"},
+        ]
+        regular, extra = _classify_schemas(schemas, profile)
+        assert "is_veteran" in regular
+        assert any(s["key"] == "custom_field" for s in extra)
 
-        profile = UserProfile(
-            age=65,
-            income_level=IncomeLevel.BASIC,
-            disability=False,
-            housing_type="아파트",  # already filled
-        )
-        result = await _infer_missing_fields(
-            profile, "대상자", "선정기준", ["저소득층"]
-        )
+    def test_children_field_excluded_when_has_children_false(self):
+        profile = UserProfile(has_children=False)
+        schemas = [
+            {"key": "has_children_age", "label": "자녀 연령", "type": "int"},
+            {"key": "deposit_amount", "label": "보증금", "type": "int"},
+        ]
+        regular, extra = _classify_schemas(schemas, profile)
+        assert not any(s["key"] == "has_children_age" for s in extra)
+        assert any(s["key"] == "deposit_amount" for s in extra)
 
-        assert "housing_type" not in result
-        assert "is_veteran" in result
+    def test_children_field_included_when_has_children_true(self):
+        profile = UserProfile(has_children=True)
+        schema = {"key": "has_children_age", "label": "자녀 연령", "type": "int"}
+        regular, extra = _classify_schemas([schema], profile)
+        assert schema in extra
 
-    @patch("agents.rag_detail.get_llm")
-    async def test_skips_invalid_field_names_not_in_stage2(self, mock_get_llm):
-        """LLM이 _STAGE_2_FIELDS에 없는 필드명 반환 → 제외."""
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(
-                regular_fields=["invalid_field", "nonexistent_key", "housing_type"],
-                extra_fields=[],
-            )
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
-
-        assert "invalid_field" not in result
-        assert "nonexistent_key" not in result
-        assert "housing_type" in result
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_skips_extra_fields_already_in_profile(self, mock_get_llm):
-        """LLM이 profile.extra_fields에 이미 있는 키 반환 → 제외."""
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(
-                regular_fields=[],
-                extra_fields=["deposit_amount", "existing_key"],
-            )
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(
-            age=65,
-            income_level=IncomeLevel.BASIC,
-            disability=False,
-            extra_fields={"existing_key": "some_value"},  # already in profile
-        )
-        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
-
-        assert "extra:deposit_amount" in result
-        assert "extra:existing_key" not in result
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_extra_fields_prefixed_correctly(self, mock_get_llm):
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(
-                regular_fields=[], extra_fields=["deposit_amount"]
-            )
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
-
-        assert "extra:deposit_amount" in result
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_llm_failure_returns_empty_list(self, mock_get_llm):
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(side_effect=Exception("LLM error"))
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
-
-        assert result == []
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_llm_failure_retries_max_retry_plus_one_times(self, mock_get_llm):
-        """모든 시도 실패 → LLM_MAX_RETRY+1회 시도 후 빈 리스트 반환."""
-        max_retry = int(os.getenv("LLM_MAX_RETRY", "2"))
-
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(side_effect=Exception("LLM error"))
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
-
-        assert result == []
-        assert extractor.ainvoke.call_count == max_retry + 1
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_first_attempt_fails_second_succeeds(self, mock_get_llm):
-        """첫 시도 실패 후 두 번째에 성공 → 정상 반환."""
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            side_effect=[
-                Exception("일시 오류"),
-                _RequiredFields(regular_fields=["is_veteran"], extra_fields=[]),
-            ]
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
-
-        assert "is_veteran" in result
-        assert extractor.ainvoke.call_count == 2
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_empty_eligibility_text_still_calls_llm(self, mock_get_llm):
-        """빈 eligibility 텍스트 입력 → LLM 호출은 하되 결과에 따라 반환."""
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(regular_fields=[], extra_fields=[])
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(profile, "", "", [])
-
-        assert extractor.ainvoke.call_count == 1
-        assert result == []
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_both_fields_empty_returns_empty_list(self, mock_get_llm):
-        """regular_fields와 extra_fields 모두 비어있는 반환 → 빈 리스트."""
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(regular_fields=[], extra_fields=[])
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(
-            profile, "대상자", "선정기준", ["저소득층"]
-        )
-
-        assert result == []
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_disability_fields_excluded_when_disability_false(self, mock_get_llm):
-        """disability=False이면 disability_type·disability_grade는 반환에서 제외."""
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(
-                regular_fields=["disability_type", "disability_grade", "housing_type"],
-                extra_fields=[],
-            )
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=False)
-        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
-
-        assert "disability_type" not in result
-        assert "disability_grade" not in result
-        assert "housing_type" in result
-
-    @patch("agents.rag_detail.get_llm")
-    async def test_disability_fields_included_when_disability_true(self, mock_get_llm):
-        """disability=True이면 disability_type·disability_grade가 포함될 수 있다."""
-        extractor = AsyncMock()
-        extractor.ainvoke = AsyncMock(
-            return_value=_RequiredFields(
-                regular_fields=["disability_type", "disability_grade"],
-                extra_fields=[],
-            )
-        )
-        mock_get_llm.return_value.with_structured_output.return_value = extractor
-
-        profile = UserProfile(age=65, income_level=IncomeLevel.BASIC, disability=True)
-        result = await _infer_missing_fields(profile, "대상자", "선정기준", [])
-
-        assert "disability_type" in result
-        assert "disability_grade" in result
+    def test_children_field_excluded_by_label_keyword(self):
+        profile = UserProfile(has_children=False)
+        schema = {"key": "child_info", "label": "자녀 나이", "type": "string"}
+        regular, extra = _classify_schemas([schema], profile)
+        assert extra == []

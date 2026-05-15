@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
-from pydantic import BaseModel
+from langchain_core.messages import AIMessage
 
+import tools.hwnv_client as hwnv_client
 import tools.rag_client as rag_client
-from tools.llm import get_llm
 
 if TYPE_CHECKING:
     from graph.state import AgentState, UserProfile, WelfareCandidate
-
-_MAX_RETRY = int(os.getenv("LLM_MAX_RETRY", "2"))
 
 _STAGE_2_FIELDS = [
     "disability_type",
@@ -27,66 +23,49 @@ _STAGE_2_FIELDS = [
 ]
 
 
-class _RequiredFields(BaseModel):
-    regular_fields: list[str] = []
-    extra_fields: list[str] = []
+def _is_children_field(key: str, label: str) -> bool:
+    return (
+        "children" in key.lower()
+        or "child" in key.lower()
+        or "자녀" in label
+        or "아동" in label
+    )
 
 
-async def _infer_missing_fields(
+def _classify_schemas(
+    schemas: list[dict],
     profile: UserProfile,
-    tgtr_dtl_cn: str,
-    slct_crit_cn: str,
-    trgter_indvdl: list[str],
-) -> list[str]:
-    """자격 요건 텍스트에서 추가 수집이 필요한 UserProfile 필드를 추론합니다."""
-    system = (
-        "당신은 복지 서비스 자격 심사 전문가입니다.\n"
-        "주어진 서비스 자격 요건을 분석하여,"
-        " 사용자의 자격 여부 확인에 필요한 추가 정보를 결정하세요.\n\n"
-        f"수집 가능한 표준 필드 목록: {', '.join(_STAGE_2_FIELDS)}\n"
-        "규칙:\n"
-        "- 서비스 자격 요건에 필요한 표준 필드"
-        " → regular_fields에 필드명 추가\n"
-        "- 표준 필드에 없는 특수 정보가 필요한 경우"
-        " → extra_fields에 영문 snake_case 키 추가\n"
-        "- 현재 사용자 프로필에 이미 있는 정보는 포함하지 마세요\n\n"
-        f"현재 사용자 프로필: {profile.model_dump(exclude_none=True)}"
-    )
-    human = (
-        f"[대상자 상세]\n{tgtr_dtl_cn}\n\n"
-        f"[선정 기준]\n{slct_crit_cn}\n\n"
-        f"[대상자 유형]\n{', '.join(trgter_indvdl)}"
-    )
+) -> tuple[list[str], list[dict]]:
+    """field_extractor 결과를 표준 필드와 extra 필드로 분류합니다.
 
-    extractor = get_llm().with_structured_output(_RequiredFields)
-    result: _RequiredFields | None = None
-    for _ in range(_MAX_RETRY + 1):
-        try:
-            result = await extractor.ainvoke(
-                [SystemMessage(content=system), HumanMessage(content=human)]
-            )
-            break
-        except Exception:
-            continue
+    Returns:
+        (regular_missing, extra_schemas)
+        - regular_missing: _STAGE_2_FIELDS 중 아직 수집 안 된 것
+        - extra_schemas: 표준 필드에 없는 커스텀 필드 스키마 목록
+    """
+    regular_missing: list[str] = []
+    extra_schemas: list[dict] = []
 
-    if result is None:
-        return []
+    for schema in schemas:
+        key = schema.get("key", "")
+        if key in _STAGE_2_FIELDS:
+            if getattr(profile, key, None) is None:
+                regular_missing.append(key)
+        elif key not in profile.extra_fields:
+            if profile.has_children is False and _is_children_field(
+                key, schema.get("label", "")
+            ):
+                continue
+            extra_schemas.append(schema)
 
-    missing: list[str] = []
-    for field in result.regular_fields:
-        if field in _STAGE_2_FIELDS and getattr(profile, field, None) is None:
-            missing.append(field)
-    for key in result.extra_fields:
-        if key not in profile.extra_fields:
-            missing.append(f"extra:{key}")
-
-    # disability=False면 장애 관련 필드는 수집 불필요
     if not profile.disability:
-        missing = [
-            f for f in missing if f not in ("disability_type", "disability_grade")
+        regular_missing = [
+            f
+            for f in regular_missing
+            if f not in ("disability_type", "disability_grade")
         ]
 
-    return missing
+    return regular_missing, extra_schemas
 
 
 async def rag_detail_node(state: AgentState) -> dict:
@@ -109,6 +88,7 @@ async def rag_detail_node(state: AgentState) -> dict:
         return {
             "selected_service": selected,
             "detail_missing_fields": [],
+            "extra_field_schemas": [],
             "messages": [AIMessage(content=error_msg)],
         }
 
@@ -121,14 +101,24 @@ async def rag_detail_node(state: AgentState) -> dict:
         }
     )
 
-    missing_fields = await _infer_missing_fields(
-        profile=profile,
-        tgtr_dtl_cn=detail.get("tgtr_dtl_cn", ""),
-        slct_crit_cn=detail.get("slct_crit_cn", ""),
-        trgter_indvdl=detail.get("trgter_indvdl", []),
-    )
+    schemas: list[dict] = []
+    try:
+        schemas = await hwnv_client.extract_extra_field_schemas(
+            {
+                "serv_nm": detail.get("serv_nm", ""),
+                "tgtr_dtl_cn": detail.get("tgtr_dtl_cn", ""),
+                "slct_crit_cn": detail.get("slct_crit_cn", ""),
+                "trgter_indvdl": detail.get("trgter_indvdl", []),
+            }
+        )
+    except Exception as e:
+        print(f"[hwnv field_extractor 오류] {type(e).__name__}: {e}")
+
+    regular_missing, extra_schemas = _classify_schemas(schemas, profile)
+    missing_fields = regular_missing + [f"extra:{s['key']}" for s in extra_schemas]
 
     return {
         "selected_service": updated,
         "detail_missing_fields": missing_fields,
+        "extra_field_schemas": extra_schemas,
     }
