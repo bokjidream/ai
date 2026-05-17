@@ -1,6 +1,6 @@
 """RAG 검색 노드 테스트."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage
 
@@ -115,13 +115,14 @@ class TestProfileToDict:
 
 
 class TestRagSearchNode:
-    @patch("agents.rag_search.get_llm")
+    @patch(
+        "agents.rag_search.hwnv_client.generate_eligibility_reason",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
-    async def test_returns_candidates_on_success(self, mock_search, mock_get_llm):
+    async def test_returns_candidates_on_success(self, mock_search, mock_reason):
         mock_search.return_value = _DUMMY_RAG_RESULTS
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="해당 서비스 대상자입니다.")
-        mock_get_llm.return_value = mock_llm
+        mock_reason.return_value = "해당 서비스 대상자입니다."
 
         result = await rag_search_node(_make_state())
 
@@ -130,17 +131,18 @@ class TestRagSearchNode:
             isinstance(c, WelfareCandidate) for c in result["welfare_candidates"]
         )
 
-    @patch("agents.rag_search.get_llm")
+    @patch(
+        "agents.rag_search.hwnv_client.generate_eligibility_reason",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
-    async def test_priority_assigned_by_score_order(self, mock_search, mock_get_llm):
+    async def test_priority_assigned_by_score_order(self, mock_search, mock_reason):
         unsorted = [
             {**_DUMMY_RAG_RESULTS[1], "score": 0.80},
             {**_DUMMY_RAG_RESULTS[0], "score": 0.95},
         ]
         mock_search.return_value = unsorted
-        mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content="")
-        mock_get_llm.return_value = mock_llm
+        mock_reason.return_value = ""
 
         result = await rag_search_node(_make_state())
 
@@ -150,13 +152,15 @@ class TestRagSearchNode:
         assert candidates[1].priority == 2
         assert candidates[1].score == 0.80
 
-    @patch("agents.rag_search.get_llm")
+    @patch(
+        "agents.rag_search.hwnv_client.generate_eligibility_reason",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
     async def test_empty_result_returns_no_candidates_with_message(
-        self, mock_search, mock_get_llm
+        self, mock_search, mock_reason
     ):
         mock_search.return_value = []
-        mock_get_llm.return_value = MagicMock()
 
         result = await rag_search_node(_make_state())
 
@@ -164,13 +168,15 @@ class TestRagSearchNode:
         assert isinstance(result["messages"][0], AIMessage)
         assert "찾지 못했습니다" in result["messages"][0].content
 
-    @patch("agents.rag_search.get_llm")
+    @patch(
+        "agents.rag_search.hwnv_client.generate_eligibility_reason",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
     async def test_network_error_retries_and_returns_error_message(
-        self, mock_search, mock_get_llm
+        self, mock_search, mock_reason
     ):
         mock_search.side_effect = Exception("Connection error")
-        mock_get_llm.return_value = MagicMock()
 
         result = await rag_search_node(_make_state())
 
@@ -179,19 +185,19 @@ class TestRagSearchNode:
         assert "연결 오류" in result["messages"][0].content
         assert mock_search.call_count == 2  # 1회 재시도 확인
 
-    @patch("agents.rag_search.get_llm")
+    @patch(
+        "agents.rag_search.hwnv_client.generate_eligibility_reason",
+        new_callable=AsyncMock,
+    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
     async def test_eligibility_reason_generated_per_candidate(
-        self, mock_search, mock_get_llm
+        self, mock_search, mock_reason
     ):
         mock_search.return_value = _DUMMY_RAG_RESULTS
-        mock_llm = MagicMock()
-        mock_llm.ainvoke = AsyncMock(
-            return_value=MagicMock(content="적합한 서비스입니다.")
-        )
-        mock_get_llm.return_value = mock_llm
+        mock_reason.return_value = "적합한 서비스입니다."
 
         result = await rag_search_node(_make_state())
 
+        assert mock_reason.call_count == len(_DUMMY_RAG_RESULTS)
         for candidate in result["welfare_candidates"]:
-            assert candidate.eligibility_reason != ""
+            assert candidate.eligibility_reason == "적합한 서비스입니다."
