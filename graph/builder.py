@@ -19,8 +19,22 @@ from graph.state import AgentState
 
 load_dotenv()
 
-# SQLite 모드일 때 커넥션 수명을 앱과 동일하게 유지하기 위한 스택
+# SQLite/Postgres 모드일 때 커넥션 수명을 앱과 동일하게 유지하기 위한 스택
 _checkpointer_stack: AsyncExitStack | None = None
+
+
+def _make_serde() -> JsonPlusSerializer:
+    """체크포인터 직렬화기 — graph.state 커스텀 타입을 msgpack 허용 목록에 등록."""
+    return JsonPlusSerializer(
+        allowed_msgpack_modules=[
+            ("graph.state", "UserProfile"),
+            ("graph.state", "WelfareCandidate"),
+            ("graph.state", "IncomeLevel"),
+            ("graph.state", "EmploymentStatus"),
+            ("graph.state", "MaritalStatus"),
+            ("graph.state", "DisabilitySeverity"),
+        ]
+    )
 
 
 # ── 조건부 엣지 함수 ──
@@ -91,29 +105,25 @@ async def build_graph():
         checkpointer = await _checkpointer_stack.enter_async_context(
             AsyncSqliteSaver.from_conn_string(db_path)
         )
-        checkpointer.serde = JsonPlusSerializer(
-            allowed_msgpack_modules=[
-                ("graph.state", "UserProfile"),
-                ("graph.state", "WelfareCandidate"),
-                ("graph.state", "IncomeLevel"),
-                ("graph.state", "EmploymentStatus"),
-                ("graph.state", "MaritalStatus"),
-                ("graph.state", "DisabilitySeverity"),
-            ]
-        )
+        checkpointer.serde = _make_serde()
         return builder.compile(checkpointer=checkpointer)
 
     if mode == "postgres":
-        raise NotImplementedError("Postgres checkpointer is not configured yet.")
+        from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
-    serde = JsonPlusSerializer(
-        allowed_msgpack_modules=[
-            ("graph.state", "UserProfile"),
-            ("graph.state", "WelfareCandidate"),
-            ("graph.state", "IncomeLevel"),
-            ("graph.state", "EmploymentStatus"),
-            ("graph.state", "MaritalStatus"),
-            ("graph.state", "DisabilitySeverity"),
-        ]
-    )
-    return builder.compile(checkpointer=MemorySaver(serde=serde))
+        conn_string = os.getenv("POSTGRES_CONN_STRING")
+        if not conn_string:
+            raise ValueError(
+                "GRAPH_CHECKPOINTER=postgres 사용 시 "
+                "POSTGRES_CONN_STRING 환경변수가 필요합니다."
+            )
+        _checkpointer_stack = AsyncExitStack()
+        checkpointer = await _checkpointer_stack.enter_async_context(
+            AsyncPostgresSaver.from_conn_string(conn_string)
+        )
+        checkpointer.serde = _make_serde()
+        # 첫 실행 시 체크포인터 테이블 생성 (멱등 — 이미 있으면 무시)
+        await checkpointer.setup()
+        return builder.compile(checkpointer=checkpointer)
+
+    return builder.compile(checkpointer=MemorySaver(serde=_make_serde()))
