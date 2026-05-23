@@ -88,6 +88,7 @@ class WelfareCandidate(BaseModel):
     required_documents: list[str] = []
     application_method: str = ""
     application_url: str | None = None
+    application_forms: list[dict] = []  # [{"title", "url", "file_type"}]
     detail_fetched: bool = False
 
 

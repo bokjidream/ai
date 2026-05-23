@@ -97,6 +97,7 @@ async def rag_detail_node(state: AgentState) -> dict:
             "required_documents": detail.get("required_documents", []),
             "application_method": detail.get("application_method", ""),
             "application_url": detail.get("application_url"),
+            "application_forms": detail.get("application_forms", []),
             "detail_fetched": True,
         }
     )
