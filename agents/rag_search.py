@@ -5,9 +5,9 @@ import os
 
 from langchain_core.messages import AIMessage
 
+import tools.hwnv_client as hwnv_client
 import tools.rag_client as rag_client
 from graph.state import AgentState, UserProfile, WelfareCandidate
-from tools.llm import get_llm
 
 
 def _profile_to_dict(profile: UserProfile) -> dict:
@@ -32,24 +32,6 @@ def _profile_to_dict(profile: UserProfile) -> dict:
     if profile.has_children is not None:
         data["has_children"] = profile.has_children
     return data
-
-
-async def _generate_eligibility_reason(
-    llm, serv_nm: str, serv_dgst: str, profile: UserProfile
-) -> str:
-    """서비스 요약과 사용자 프로필을 기반으로 선정 이유를 생성."""
-    prompt = (
-        f"다음 복지 서비스가 이 사용자에게 적합한 이유를 한 문장으로 설명하세요.\n\n"
-        f"서비스명: {serv_nm}\n"
-        f"서비스 요약: {serv_dgst}\n"
-        f"사용자 정보: 나이 {profile.age}세, 지역 {profile.region}, "
-        f"소득수준 {profile.income_level}"
-    )
-    try:
-        response = await llm.ainvoke(prompt)
-        return response.content
-    except Exception:
-        return ""
 
 
 async def rag_search_node(state: AgentState) -> dict:
@@ -93,13 +75,13 @@ async def rag_search_node(state: AgentState) -> dict:
     # score 내림차순 정렬
     results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
 
-    llm = get_llm()
-
     # 후보별 선정 이유를 병렬로 생성
     reasons = await asyncio.gather(
         *[
-            _generate_eligibility_reason(
-                llm, item["serv_nm"], item["serv_dgst"], profile
+            hwnv_client.generate_eligibility_reason(
+                serv_nm=item["serv_nm"],
+                serv_dgst=item["serv_dgst"],
+                user=_profile_to_dict(profile),
             )
             for item in results
         ]

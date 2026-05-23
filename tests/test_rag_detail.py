@@ -61,6 +61,13 @@ _DUMMY_DETAIL = {
     "required_documents": ["사회보장급여 신청서", "신분증"],
     "application_method": "읍면동 주민센터 방문 신청, 사회보장급여 신청서 제출",
     "application_url": "https://www.bokjiro.go.kr",
+    "application_forms": [
+        {
+            "title": "사회보장급여 신청서",
+            "url": "https://www.bokjiro.go.kr/form.hwp",
+            "file_type": "hwp",
+        },
+    ],
     "tgtr_dtl_cn": "기초생활수급자 중 생계급여 수급자",
     "slct_crit_cn": "소득인정액이 생계급여 선정기준 이하인 자",
     "trgter_indvdl": ["저소득층"],
@@ -89,6 +96,7 @@ class TestRagDetailNode:
             == "읍면동 주민센터 방문 신청, 사회보장급여 신청서 제출"
         )
         assert updated.application_url == "https://www.bokjiro.go.kr"
+        assert updated.application_forms == _DUMMY_DETAIL["application_forms"]
 
     @patch(
         "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
@@ -168,6 +176,7 @@ class TestRagDetailNode:
         assert updated.required_documents == []
         assert updated.application_method == ""
         assert updated.application_url is None
+        assert updated.application_forms == []
         assert updated.detail_fetched is True
 
     @patch(
