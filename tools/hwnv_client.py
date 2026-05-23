@@ -182,17 +182,22 @@ async def extract_detail_value(
         return _parse_json_content(content)
 
 
-async def extract_extra_field_schemas(service_info: dict) -> list[dict]:
+async def extract_extra_field_schemas(
+    service_info: dict, user_info: dict | None = None
+) -> list[dict]:
     """field_extractor 프로필로 서비스 추가 필드 스키마를 생성합니다.
 
     Args:
         service_info: {serv_nm, tgtr_dtl_cn, slct_crit_cn, trgter_indvdl}
+        user_info: 1차 인터뷰에서 수집한 UserProfile 값 (이미 알고 있는 필드 제외용)
 
     Returns:
         [{"key", "label", "type", "enum_values"?, "question_hint", "reason"}]
         실패 시 빈 리스트
     """
-    payload = {"service": service_info}
+    payload: dict = {"service": service_info}
+    if user_info:
+        payload["user"] = user_info
 
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=_TIMEOUT) as client:
         resp = await client.post(
