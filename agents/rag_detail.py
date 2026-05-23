@@ -102,6 +102,12 @@ async def rag_detail_node(state: AgentState) -> dict:
         }
     )
 
+    user_info = {
+        k: v
+        for k, v in profile.model_dump(exclude={"extra_fields"}).items()
+        if v is not None
+    }
+
     schemas: list[dict] = []
     try:
         schemas = await hwnv_client.extract_extra_field_schemas(
@@ -110,7 +116,8 @@ async def rag_detail_node(state: AgentState) -> dict:
                 "tgtr_dtl_cn": detail.get("tgtr_dtl_cn", ""),
                 "slct_crit_cn": detail.get("slct_crit_cn", ""),
                 "trgter_indvdl": detail.get("trgter_indvdl", []),
-            }
+            },
+            user_info=user_info,
         )
     except Exception as e:
         print(f"[hwnv field_extractor 오류] {type(e).__name__}: {e}")
