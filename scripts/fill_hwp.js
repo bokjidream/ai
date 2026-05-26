@@ -9,6 +9,7 @@
 
 const path = require("node:path");
 const fs = require("node:fs");
+const AdmZip = require("adm-zip");
 
 function loadKSkillRhwp() {
   const localPath = path.resolve(
@@ -39,7 +40,7 @@ function collapseSpaces(text) {
 
 function isValueCell(text) {
   if (text === "") return true;
-  if (/^[\s_\-.]*$/.test(text)) return true;
+  if (/^[\s_\-.□○]+$/.test(text)) return true;
   // "(핸드폰)(집전화)" 같은 괄호 힌트만 있는 셀도 값 셀로 허용
   const withoutParens = text
     .replace(/\([^)]*\)/g, "")
@@ -142,12 +143,125 @@ function findValueCell(cells, labelCell) {
   return null;
 }
 
-/** 원본 포맷(hwp/hwpx)을 보존하여 저장한다. */
-function writeDocument(doc, outputPath) {
-  const format = doc.getSourceFormat(); // "hwp" | "hwpx"
-  const bytes = format === "hwpx" ? doc.exportHwpx() : doc.exportHwp();
-  fs.writeFileSync(outputPath, Buffer.from(bytes));
+// ─── HWPX 직접 XML 패치 ───────────────────────────────────────────────────────
+
+function escapeXml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
+
+/**
+ * XML에서 openStart 위치의 <tag ...> 에 대응하는 </tag> 직후 인덱스를 반환한다.
+ * 중첩된 동일 태그를 올바르게 처리한다.
+ */
+function findMatchingClose(xml, openStart, tag) {
+  let depth = 0;
+  let i = openStart;
+  while (i < xml.length) {
+    if (xml.startsWith(`<${tag} `, i) || xml.startsWith(`<${tag}>`, i)) {
+      depth++;
+      i += tag.length + 2;
+    } else if (xml.startsWith(`</${tag}>`, i)) {
+      depth--;
+      if (depth === 0) return i + tag.length + 3;
+      i += tag.length + 3;
+    } else {
+      i++;
+    }
+  }
+  return xml.length;
+}
+
+/**
+ * section0.xml 에서 fill 정보에 해당하는 값 셀의 텍스트를 교체한다.
+ *
+ * 셀 패턴 3가지:
+ *   A. 빈 셀  — <hp:run .../>  →  <hp:run ...><hp:t>값</hp:t></hp:run>
+ *   B. 단일 힌트 셀  — <hp:t>힌트</hp:t>  →  <hp:t>값</hp:t>
+ *   C. 다중 단락 힌트 셀  — 첫 <hp:t> → 값, 나머지 → <hp:t/>
+ */
+function patchCellInXml(xml, fill) {
+  const { labelText, valueCellCol, valueCellRow, value } = fill;
+  const escaped = escapeXml(value);
+
+  // 1. 라벨 텍스트로 테이블 위치 찾기
+  const labelTag = `<hp:t>${labelText}</hp:t>`;
+  const labelIdx = xml.indexOf(labelTag);
+  if (labelIdx === -1) return xml;
+
+  const tblStart = xml.lastIndexOf("<hp:tbl ", labelIdx);
+  if (tblStart === -1) return xml;
+  const tblEnd = findMatchingClose(xml, tblStart, "hp:tbl");
+
+  // 2. 테이블 내에서 값 셀 cellAddr 찾기
+  const cellAddrStr = `<hp:cellAddr colAddr="${valueCellCol}" rowAddr="${valueCellRow}"/>`;
+  const addrIdx = xml.indexOf(cellAddrStr, tblStart);
+  if (addrIdx === -1 || addrIdx >= tblEnd) return xml;
+
+  // 3. 값 셀 subList 범위 찾기 (cellAddr 앞의 </hp:subList> 역탐색)
+  const subListEndTag = "</hp:subList>";
+  const subListEndIdx = xml.lastIndexOf(subListEndTag, addrIdx);
+  if (subListEndIdx === -1) return xml;
+  const subListStartIdx = xml.lastIndexOf("<hp:subList", subListEndIdx);
+  if (subListStartIdx === -1) return xml;
+
+  const sliceEnd = subListEndIdx + subListEndTag.length;
+  const subListSlice = xml.slice(subListStartIdx, sliceEnd);
+
+  // 4. 패턴 판별 및 교체
+  const hasHpT = /<hp:t>/.test(subListSlice);
+  let patched;
+
+  if (!hasHpT) {
+    // 케이스 A: 빈 셀 — 첫 번째 self-closing run 을 텍스트 run 으로 변환
+    patched = subListSlice.replace(
+      /<hp:run([^>]*)\/>/,
+      (_, attrs) => `<hp:run${attrs}><hp:t>${escaped}</hp:t></hp:run>`
+    );
+    if (patched === subListSlice) return xml;
+  } else {
+    // 케이스 B/C: 힌트 텍스트 교체
+    let firstReplaced = false;
+    patched = subListSlice.replace(/<hp:t>[^<]*<\/hp:t>/g, () => {
+      if (!firstReplaced) {
+        firstReplaced = true;
+        return `<hp:t>${escaped}</hp:t>`;
+      }
+      return "<hp:t/>";
+    });
+    if (!firstReplaced) return xml;
+  }
+
+  return xml.slice(0, subListStartIdx) + patched + xml.slice(sliceEnd);
+}
+
+/**
+ * HWPX를 exportHwpx() 없이 저장한다.
+ * 원본 ZIP의 Contents/section0.xml 만 패치하고 나머지는 그대로 복사한다.
+ */
+function writeHwpxPatched(inputPath, outputPath, fills) {
+  const originalZip = new AdmZip(inputPath);
+  let sectionXml = originalZip.readAsText("Contents/section0.xml");
+
+  for (const fill of fills) {
+    sectionXml = patchCellInXml(sectionXml, fill);
+  }
+
+  const newZip = new AdmZip();
+  for (const entry of originalZip.getEntries()) {
+    if (entry.isDirectory) continue;
+    if (entry.entryName === "Contents/section0.xml") {
+      newZip.addFile(entry.entryName, Buffer.from(sectionXml, "utf8"));
+    } else {
+      newZip.addFile(entry.entryName, entry.getData());
+    }
+  }
+  newZip.writeZip(outputPath);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function scanMode(inputPath) {
   const { loadDocument } = loadKSkillRhwp();
@@ -168,8 +282,9 @@ async function fillMode(inputPath, outputPath, mappingFilePath) {
 
   try {
     const cells = scanTableCells(doc);
+    const format = doc.getSourceFormat(); // "hwp" | "hwpx"
     const results = [];
-    let fillCount = 0;
+    const fills = []; // HWPX 전용: XML 패치에 필요한 정보
 
     for (const [label, value] of Object.entries(fieldMapping)) {
       if (!value || String(value).trim() === "") continue;
@@ -189,22 +304,37 @@ async function fillMode(inputPath, outputPath, mappingFilePath) {
         continue;
       }
 
-      try {
-        const { s, p, c, cellIdx } = valueCell;
-        const len = doc.getCellParagraphLength(s, p, c, cellIdx, 0);
-        if (len > 0) {
-          doc.deleteTextInCell(s, p, c, cellIdx, 0, 0, len);
-        }
-        doc.insertTextInCell(s, p, c, cellIdx, 0, 0, String(value));
-        valueCell.text = String(value);
+      if (format === "hwpx") {
+        // HWPX: XML 직접 패치 — WASM insertTextInCell 사용 안 함
+        fills.push({
+          labelText: labelCell.text,
+          valueCellCol: valueCell.col,
+          valueCellRow: valueCell.row,
+          value: String(value),
+        });
         results.push({ label, matched: true, filled: true, value });
-        fillCount++;
-      } catch (e) {
-        results.push({ label, matched: true, filled: false, reason: e.message });
+      } else {
+        // HWP: 기존 WASM API 사용
+        try {
+          const { s, p, c, cellIdx } = valueCell;
+          const len = doc.getCellParagraphLength(s, p, c, cellIdx, 0);
+          if (len > 0) doc.deleteTextInCell(s, p, c, cellIdx, 0, 0, len);
+          doc.insertTextInCell(s, p, c, cellIdx, 0, 0, String(value));
+          valueCell.text = String(value);
+          results.push({ label, matched: true, filled: true, value });
+        } catch (e) {
+          results.push({ label, matched: true, filled: false, reason: e.message });
+        }
       }
     }
 
-    writeDocument(doc, outputPath);
+    if (format === "hwpx") {
+      writeHwpxPatched(inputPath, outputPath, fills);
+    } else {
+      fs.writeFileSync(outputPath, Buffer.from(doc.exportHwp()));
+    }
+
+    const fillCount = results.filter((r) => r.filled).length;
     process.stdout.write(JSON.stringify({ ok: true, count: fillCount, results }));
   } finally {
     doc.free();
