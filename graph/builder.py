@@ -10,6 +10,7 @@ from langgraph.graph import StateGraph
 from agents.detail_interview import detail_interview_node
 from agents.document_guidance import document_guidance_node
 from agents.draft_writer import draft_writer_node
+from agents.form_filler import form_filler_node
 from agents.initial_interview import initial_interview_node
 from agents.rag_detail import rag_detail_node
 from agents.rag_search import rag_search_node
@@ -82,6 +83,7 @@ async def build_graph():
     builder.add_node("detail_interview", detail_interview_node)
     builder.add_node("document_guidance", document_guidance_node)
     builder.add_node("draft_writer", draft_writer_node)
+    builder.add_node("form_filler", form_filler_node)
     builder.add_node("report_writer", report_writer_node)
 
     # 엣지 연결
@@ -92,7 +94,8 @@ async def build_graph():
     builder.add_edge("rag_detail", "detail_interview")
     builder.add_conditional_edges("detail_interview", route_after_detail_interview)
     builder.add_edge("document_guidance", "draft_writer")
-    builder.add_edge("draft_writer", "report_writer")
+    builder.add_edge("draft_writer", "form_filler")
+    builder.add_edge("form_filler", "report_writer")
     builder.add_edge("report_writer", END)
 
     mode = os.getenv("GRAPH_CHECKPOINTER", "memory")
