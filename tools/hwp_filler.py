@@ -29,6 +29,44 @@ async def download_hwp(url: str, dest: Path) -> None:
     logger.debug("HWP 다운로드 완료: %s → %s", url, dest)
 
 
+async def _run_node(args: list[str], timeout: float) -> bytes:
+    """Node.js fill_hwp.js를 실행하고 stdout을 반환합니다."""
+    proc = await asyncio.create_subprocess_exec(
+        _NODE_BINARY,
+        str(_FILL_HWP_SCRIPT),
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError as e:
+        proc.kill()
+        raise RuntimeError(
+            f"fill_hwp.js가 {timeout}초 내에 완료되지 않았습니다."
+        ) from e
+
+    if proc.returncode != 0:
+        err_msg = stderr.decode("utf-8", errors="replace").strip()
+        raise RuntimeError(f"fill_hwp.js 종료 코드 {proc.returncode}: {err_msg}")
+
+    return stdout
+
+
+async def scan_hwp_labels(input_path: Path) -> list[str]:
+    """HWP/HWPX 표 셀에서 라벨 후보 텍스트 목록을 반환합니다.
+
+    실패 시 빈 리스트를 반환합니다 (LLM이 추론 모드로 동작).
+    """
+    try:
+        stdout = await _run_node(["--scan", str(input_path)], _NODE_TIMEOUT)
+        data = json.loads(stdout.decode("utf-8"))
+        return data.get("labels", [])
+    except Exception as e:
+        logger.warning("[hwp_filler] 라벨 스캔 실패: %s", e)
+        return []
+
+
 async def fill_hwp(
     input_path: Path,
     output_path: Path,
@@ -37,7 +75,7 @@ async def fill_hwp(
     """Node.js fill_hwp.js를 subprocess로 호출해 HWP 필드를 채웁니다.
 
     Returns:
-        {"ok": bool, "count": int, "replacements": list}
+        {"ok": bool, "count": int, "results": list}
     """
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", encoding="utf-8", delete=False
@@ -46,30 +84,11 @@ async def fill_hwp(
         tmp_path = tmp.name
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            _NODE_BINARY,
-            str(_FILL_HWP_SCRIPT),
-            str(input_path),
-            str(output_path),
-            tmp_path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        stdout = await _run_node(
+            [str(input_path), str(output_path), tmp_path], _NODE_TIMEOUT
         )
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=_NODE_TIMEOUT
-            )
-        except TimeoutError as e:
-            proc.kill()
-            raise RuntimeError(
-                f"fill_hwp.js가 {_NODE_TIMEOUT}초 내에 완료되지 않았습니다."
-            ) from e
     finally:
         Path(tmp_path).unlink(missing_ok=True)
-
-    if proc.returncode != 0:
-        err_msg = stderr.decode("utf-8", errors="replace").strip()
-        raise RuntimeError(f"fill_hwp.js 종료 코드 {proc.returncode}: {err_msg}")
 
     return json.loads(stdout.decode("utf-8"))
 

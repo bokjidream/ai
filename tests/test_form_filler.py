@@ -121,6 +121,7 @@ async def test_llm_mapping_failure_results_in_skipped(tmp_path):
 
     with (
         patch("agents.form_filler.download_hwp", new=AsyncMock()) as mock_dl,
+        patch("agents.form_filler.scan_hwp_labels", new=AsyncMock(return_value=[])),
         patch(
             "agents.form_filler._generate_field_mapping", new=AsyncMock(return_value={})
         ),
@@ -142,6 +143,10 @@ async def test_successful_fill(tmp_path):
 
     with (
         patch("agents.form_filler.download_hwp", new=AsyncMock()) as mock_dl,
+        patch(
+            "agents.form_filler.scan_hwp_labels",
+            new=AsyncMock(return_value=["성명", "주소"]),
+        ),
         patch(
             "agents.form_filler._generate_field_mapping",
             new=AsyncMock(return_value={"성명": "홍길동", "주소": "서울특별시"}),

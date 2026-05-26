@@ -2,12 +2,9 @@
 "use strict";
 
 /**
- * fill_hwp.js <input.hwp> <output.hwp> '<field_mapping_json>'
- *
- * 표 셀 스캔 방식:
- *   1. 모든 표의 셀 텍스트를 읽어 라벨 셀 파악
- *   2. 라벨 셀 오른쪽(또는 아래) 빈 셀을 값 셀로 특정
- *   3. insertTextInCell로 값 삽입 (문서를 1회만 로드/저장)
+ * 사용법:
+ *   fill_hwp.js <input> <output> <mapping.json>   -- 표 셀 채우기 (원본 포맷 보존)
+ *   fill_hwp.js --scan <input>                    -- 라벨 후보 셀 목록 출력
  */
 
 const path = require("node:path");
@@ -98,6 +95,28 @@ function scanTableCells(doc) {
   return cells;
 }
 
+/**
+ * 라벨 후보 셀만 추출한다.
+ * - 짧고(collapsed 기준 1~20자) 단일 행인 셀
+ * - 체크박스·번호·기호만 있는 셀은 제외
+ */
+function extractLabelCandidates(cells) {
+  const seen = new Set();
+  const labels = [];
+  for (const cell of cells) {
+    const t = cell.text;
+    if (!t || t.includes("\n")) continue;
+    const collapsed = collapseSpaces(t);
+    if (collapsed.length < 1 || collapsed.length > 20) continue;
+    // 체크박스·기호·번호만 있는 셀 제외
+    if (/^[□○◎※①②③④⑤⑥⑦⑧⑨⑩●\s\-_.()\d]+$/.test(collapsed)) continue;
+    if (seen.has(collapsed)) continue;
+    seen.add(collapsed);
+    labels.push(t.trim());
+  }
+  return labels;
+}
+
 /** 라벨 셀에 대응하는 값 셀을 찾는다. */
 function findValueCell(cells, labelCell) {
   const { s, p, c, row, col, colSpan } = labelCell;
@@ -123,32 +142,38 @@ function findValueCell(cells, labelCell) {
   return null;
 }
 
-async function main() {
-  const [inputPath, outputPath, mappingFilePath] = process.argv.slice(2);
+/** 원본 포맷(hwp/hwpx)을 보존하여 저장한다. */
+function writeDocument(doc, outputPath) {
+  const format = doc.getSourceFormat(); // "hwp" | "hwpx"
+  const bytes = format === "hwpx" ? doc.exportHwpx() : doc.exportHwp();
+  fs.writeFileSync(outputPath, Buffer.from(bytes));
+}
 
-  if (!inputPath || !outputPath || !mappingFilePath) {
-    process.stderr.write(
-      "Usage: fill_hwp.js <input.hwp> <output.hwp> <mapping.json>\n"
-    );
-    process.exit(1);
+async function scanMode(inputPath) {
+  const { loadDocument } = loadKSkillRhwp();
+  const doc = await loadDocument(inputPath);
+  try {
+    const cells = scanTableCells(doc);
+    const labels = extractLabelCandidates(cells);
+    process.stdout.write(JSON.stringify({ ok: true, labels }));
+  } finally {
+    doc.free();
   }
+}
 
+async function fillMode(inputPath, outputPath, mappingFilePath) {
   const fieldMapping = JSON.parse(fs.readFileSync(mappingFilePath, "utf8"));
-  const { loadDocument, writeHwp } = loadKSkillRhwp();
+  const { loadDocument } = loadKSkillRhwp();
   const doc = await loadDocument(inputPath);
 
   try {
-    // 1단계: 표 셀 전체 스캔
     const cells = scanTableCells(doc);
-
     const results = [];
     let fillCount = 0;
 
-    // 2단계: 라벨 매칭 → 값 셀 찾기 → 삽입
     for (const [label, value] of Object.entries(fieldMapping)) {
       if (!value || String(value).trim() === "") continue;
 
-      // 공백 정규화 후 라벨 포함 셀 탐색 ("성  명" → "성명" 처럼 매칭)
       const normalizedLabel = collapseSpaces(label);
       const labelCell = cells.find(
         (cell) => collapseSpaces(cell.text).includes(normalizedLabel)
@@ -158,7 +183,6 @@ async function main() {
         continue;
       }
 
-      // 값 셀 찾기
       const valueCell = findValueCell(cells, labelCell);
       if (!valueCell) {
         results.push({ label, matched: true, filled: false, reason: "값 셀 없음" });
@@ -172,10 +196,7 @@ async function main() {
           doc.deleteTextInCell(s, p, c, cellIdx, 0, 0, len);
         }
         doc.insertTextInCell(s, p, c, cellIdx, 0, 0, String(value));
-
-        // 이후 탐색에서 중복 사용 방지
         valueCell.text = String(value);
-
         results.push({ label, matched: true, filled: true, value });
         fillCount++;
       } catch (e) {
@@ -183,15 +204,35 @@ async function main() {
       }
     }
 
-    // 3단계: 저장
-    writeHwp(doc, outputPath);
-
-    process.stdout.write(
-      JSON.stringify({ ok: true, count: fillCount, results })
-    );
+    writeDocument(doc, outputPath);
+    process.stdout.write(JSON.stringify({ ok: true, count: fillCount, results }));
   } finally {
     doc.free();
   }
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+
+  if (args[0] === "--scan") {
+    const inputPath = args[1];
+    if (!inputPath) {
+      process.stderr.write("Usage: fill_hwp.js --scan <input.hwp>\n");
+      process.exit(1);
+    }
+    return scanMode(inputPath);
+  }
+
+  const [inputPath, outputPath, mappingFilePath] = args;
+  if (!inputPath || !outputPath || !mappingFilePath) {
+    process.stderr.write(
+      "Usage:\n" +
+      "  fill_hwp.js <input> <output> <mapping.json>\n" +
+      "  fill_hwp.js --scan <input>\n"
+    );
+    process.exit(1);
+  }
+  return fillMode(inputPath, outputPath, mappingFilePath);
 }
 
 main().catch((e) => {

@@ -7,7 +7,7 @@ import re
 from langchain_core.runnables import RunnableConfig
 
 from graph.state import AgentState, UserProfile, WelfareCandidate
-from tools.hwp_filler import download_hwp, fill_hwp, get_output_dir
+from tools.hwp_filler import download_hwp, fill_hwp, get_output_dir, scan_hwp_labels
 from tools.llm import get_llm
 from tools.prompt_loader import load_prompt
 
@@ -56,14 +56,21 @@ async def _generate_field_mapping(
     application_method: str,
     form_title: str,
     user_info: str,
+    form_labels: list[str],
 ) -> dict[str, str]:
     """LLM으로 필드 매핑 JSON을 생성합니다. 실패 시 빈 dict 반환."""
+    if form_labels:
+        labels_text = ", ".join(f'"{lbl}"' for lbl in form_labels)
+    else:
+        labels_text = "(추출 실패 — 일반적인 신청서 필드명을 추론하세요)"
+
     prompt_template = load_prompt("form_field_mapper")
     prompt = prompt_template.format(
         serv_nm=serv_nm,
         application_method=application_method or "정보 없음",
         form_title=form_title,
         user_info=user_info,
+        form_labels=labels_text,
     )
     llm = get_llm()
     try:
@@ -112,7 +119,7 @@ async def form_filler_node(state: AgentState, config: RunnableConfig) -> dict:
         title = form.get("title", f"form_{i}")
         url = form.get("url", "")
         file_type = form.get("file_type", "hwp")
-        safe_name = f"{i:02d}_{_sanitize_filename(title)}.hwp"
+        safe_name = f"{i:02d}_{_sanitize_filename(title)}.{file_type}"
         raw_path = output_dir / f"raw_{safe_name}"
         filled_path = output_dir / safe_name
         download_key = f"{thread_id}/{safe_name}"
@@ -130,11 +137,17 @@ async def form_filler_node(state: AgentState, config: RunnableConfig) -> dict:
         try:
             await download_hwp(url, raw_path)
 
+            form_labels = await scan_hwp_labels(raw_path)
+            logger.debug(
+                "[form_filler] 스캔된 라벨 %d개: %s", len(form_labels), form_labels
+            )
+
             field_mapping = await _generate_field_mapping(
                 serv_nm=selected.serv_nm,
                 application_method=selected.application_method,
                 form_title=title,
                 user_info=user_info,
+                form_labels=form_labels,
             )
 
             if not field_mapping:
