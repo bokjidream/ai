@@ -116,3 +116,4 @@ class AgentState(TypedDict):
     detail_last_question: str  # 직전 2단계 봇 질문
     detail_last_answer: str  # 직전 2단계 사용자 답변
     extra_field_schemas: list[dict]  # field_extractor가 생성한 extra 필드 스키마
+    filled_forms: list[dict]  # form_filler_node가 생성한 완성 HWP 파일 메타데이터

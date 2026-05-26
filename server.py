@@ -8,15 +8,18 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from langgraph.types import Command
 from pydantic import BaseModel
 
 from graph.builder import build_graph
 from graph.state import UserProfile, WelfareCandidate
+from tools.hwp_filler import get_filled_forms_dir
 
 load_dotenv()
 
@@ -69,7 +72,7 @@ _CORS_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split("
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_CORS_ORIGINS,
-    allow_methods=["POST"],
+    allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
 
@@ -117,6 +120,7 @@ def _initial_state() -> dict:
         "detail_last_question": "",
         "detail_last_answer": "",
         "extra_field_schemas": [],
+        "filled_forms": [],
     }
 
 
@@ -189,6 +193,11 @@ def _service_select_response(
 def _done_response(thread_id: str, state) -> ChatResponse:
     selected: WelfareCandidate | None = state.values.get("selected_service")
     candidates: list[WelfareCandidate] = state.values.get("welfare_candidates", [])
+    filled_forms: list[dict] = state.values.get("filled_forms", [])
+    # saved_path(서버 내부 절대경로)는 클라이언트에 노출하지 않음
+    public_filled_forms = [
+        {k: v for k, v in f.items() if k != "saved_path"} for f in filled_forms
+    ]
     return ChatResponse(
         thread_id=thread_id,
         type="done",
@@ -198,6 +207,7 @@ def _done_response(thread_id: str, state) -> ChatResponse:
             "application_guide": state.values.get("application_guide", ""),
             "selected_service": selected.model_dump() if selected else None,
             "welfare_candidates": [c.model_dump() for c in candidates],
+            "filled_forms": public_filled_forms,
         },
     )
 
@@ -251,6 +261,29 @@ async def _run_until_interrupt(
         return ChatResponse(thread_id=thread_id, type="no_results", data={})
     logger.info("[thread=%s] 스트림 종료 → done", thread_id)
     return _done_response(thread_id, state)
+
+
+@app.get("/forms/download/{thread_id}/{filename}")
+async def download_form(thread_id: str, filename: str) -> FileResponse:
+    """채워진 HWP 파일을 다운로드합니다."""
+    filled_forms_dir = get_filled_forms_dir()
+    safe_thread_id = Path(thread_id).name
+    safe_filename = Path(filename).name
+    file_path = filled_forms_dir / safe_thread_id / safe_filename
+
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="파일을 찾을 수 없습니다.")
+
+    try:
+        file_path.resolve().relative_to(filled_forms_dir.resolve())
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail="접근이 거부되었습니다.") from e
+
+    return FileResponse(
+        path=str(file_path),
+        filename=safe_filename,
+        media_type="application/octet-stream",
+    )
 
 
 @app.post("/chat/start", response_model=ChatResponse)
