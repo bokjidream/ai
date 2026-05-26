@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 import httpx
@@ -38,25 +39,33 @@ async def fill_hwp(
     Returns:
         {"ok": bool, "count": int, "replacements": list}
     """
-    mapping_json = json.dumps(field_mapping, ensure_ascii=False)
-    proc = await asyncio.create_subprocess_exec(
-        _NODE_BINARY,
-        str(_FILL_HWP_SCRIPT),
-        str(input_path),
-        str(output_path),
-        mapping_json,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".json", encoding="utf-8", delete=False
+    ) as tmp:
+        json.dump(field_mapping, tmp, ensure_ascii=False)
+        tmp_path = tmp.name
+
     try:
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=_NODE_TIMEOUT
+        proc = await asyncio.create_subprocess_exec(
+            _NODE_BINARY,
+            str(_FILL_HWP_SCRIPT),
+            str(input_path),
+            str(output_path),
+            tmp_path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-    except TimeoutError as e:
-        proc.kill()
-        raise RuntimeError(
-            f"fill_hwp.js가 {_NODE_TIMEOUT}초 내에 완료되지 않았습니다."
-        ) from e
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=_NODE_TIMEOUT
+            )
+        except TimeoutError as e:
+            proc.kill()
+            raise RuntimeError(
+                f"fill_hwp.js가 {_NODE_TIMEOUT}초 내에 완료되지 않았습니다."
+            ) from e
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
     if proc.returncode != 0:
         err_msg = stderr.decode("utf-8", errors="replace").strip()

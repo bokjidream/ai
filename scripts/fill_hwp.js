@@ -124,16 +124,16 @@ function findValueCell(cells, labelCell) {
 }
 
 async function main() {
-  const [inputPath, outputPath, mappingJson] = process.argv.slice(2);
+  const [inputPath, outputPath, mappingFilePath] = process.argv.slice(2);
 
-  if (!inputPath || !outputPath || !mappingJson) {
+  if (!inputPath || !outputPath || !mappingFilePath) {
     process.stderr.write(
-      "Usage: fill_hwp.js <input.hwp> <output.hwp> '<mapping_json>'\n"
+      "Usage: fill_hwp.js <input.hwp> <output.hwp> <mapping.json>\n"
     );
     process.exit(1);
   }
 
-  const fieldMapping = JSON.parse(mappingJson);
+  const fieldMapping = JSON.parse(fs.readFileSync(mappingFilePath, "utf8"));
   const { loadDocument, writeHwp } = loadKSkillRhwp();
   const doc = await loadDocument(inputPath);
 
@@ -195,6 +195,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  process.stderr.write(e.message + "\n");
+  process.stderr.write((e && e.stack ? e.stack : String(e)) + "\n");
   process.exit(1);
 });
