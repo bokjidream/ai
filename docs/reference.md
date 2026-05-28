@@ -28,11 +28,10 @@ ai/
 │   ├── rag_client.py         # RAG 서비스 HTTP 클라이언트 (Phase 3)
 │   └── prompt_loader.py      # prompts/ 디렉터리 파일 로딩 유틸리티
 ├── prompts/
-│   ├── initial_interview.txt
-│   ├── detail_interview.txt
 │   ├── document_guidance.txt
 │   ├── draft_writer.txt      # 신청서 항목별 작성 가이드 생성 프롬프트
-│   └── report_writer.txt     # 가이드를 사용자 친화적으로 재구성하는 프롬프트
+│   ├── report_writer.txt     # 가이드를 사용자 친화적으로 재구성하는 프롬프트
+│   └── form_field_mapper.txt # HWP 필드 매핑 JSON 생성 프롬프트
 ├── tests/
 │   ├── __init__.py
 │   ├── conftest.py               # pytest fixtures (LLM 모킹, RAG 모킹)
@@ -98,11 +97,10 @@ SYSTEM_PROMPT = load_prompt("initial_interview")
 
 | 파일 | 사용 노드 |
 |------|----------|
-| `prompts/initial_interview.txt` | `initial_interview_node` |
-| `prompts/detail_interview.txt` | `detail_interview_node` |
 | `prompts/document_guidance.txt` | `document_guidance_node` |
 | `prompts/draft_writer.txt` | `draft_writer_node` |
 | `prompts/report_writer.txt` | `report_writer_node` |
+| `prompts/form_field_mapper.txt` | `form_filler_node` |
 
 ### 규칙
 
