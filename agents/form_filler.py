@@ -151,6 +151,7 @@ async def form_filler_node(state: AgentState, config: RunnableConfig) -> dict:
             )
 
             if not field_mapping:
+                logger.warning("[form_filler] 필드 매핑 없음, 원본 유지: %s", title)
                 raw_path.rename(filled_path)
                 entry["status"] = "skipped"
                 entry["error"] = "LLM 필드 매핑 결과 없음"

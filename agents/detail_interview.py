@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING
 
@@ -9,6 +10,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command, interrupt
 
 from tools import hwnv_client
+
+logger = logging.getLogger("bokjidream.detail_interview")
 
 if TYPE_CHECKING:
     from graph.state import AgentState, UserProfile
@@ -103,7 +106,7 @@ async def detail_interview_node(state: AgentState) -> dict | Command:
 
     field_info = _get_field_info(field, extra_schemas)
     if field_info is None:
-        print(f"[DEBUG] 알 수 없는 2단계 필드 스킵: {field}")
+        logger.debug("[detail_interview] 알 수 없는 필드 스킵: %s", field)
         return {"detail_missing_fields": [f for f in missing if f != field]}
 
     question = state.get("pending_question")
@@ -116,7 +119,12 @@ async def detail_interview_node(state: AgentState) -> dict | Command:
                 pre_user_message=state.get("detail_last_answer", ""),
             )
         except Exception as e:
-            print(f"[hwnv ask_detail_question 오류] {type(e).__name__}: {e}")
+            logger.warning(
+                "[detail_interview] ask_detail_question 실패 field=%s: %s",
+                field,
+                e,
+                exc_info=True,
+            )
             error_msg = (
                 "죄송합니다. 질문 생성 중 오류가 발생했습니다. "
                 "잠시 후 다시 시도해 주세요."
@@ -134,7 +142,12 @@ async def detail_interview_node(state: AgentState) -> dict | Command:
             field_info, question, user_answer
         )
     except Exception as e:
-        print(f"[hwnv extract_detail_value 오류] {type(e).__name__}: {e}")
+        logger.warning(
+            "[detail_interview] extract_detail_value 실패 field=%s: %s",
+            field,
+            e,
+            exc_info=True,
+        )
         return {
             "detail_missing_fields": missing,
             "detail_current_field": field,
@@ -146,7 +159,9 @@ async def detail_interview_node(state: AgentState) -> dict | Command:
     ai_msg = AIMessage(content=question)
     human_msg = HumanMessage(content=user_answer)
 
-    print(f"[DEBUG] 2단계 필드: {field}, 추출 결과: {result}")
+    logger.debug(
+        "[detail_interview] 2단계 필드 추출: field=%s result=%s", field, result
+    )
 
     if result.get("exist") and result.get("value") is not None:
         new_profile = _apply_extracted_value(
