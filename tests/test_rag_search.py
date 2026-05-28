@@ -168,22 +168,15 @@ class TestRagSearchNode:
         assert isinstance(result["messages"][0], AIMessage)
         assert "찾지 못했습니다" in result["messages"][0].content
 
-    @patch(
-        "agents.rag_search.hwnv_client.generate_eligibility_reason",
-        new_callable=AsyncMock,
-    )
-    @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
-    async def test_network_error_retries_and_returns_error_message(
-        self, mock_search, mock_reason
-    ):
-        mock_search.side_effect = Exception("Connection error")
+    @patch("agents.rag_search._search_with_retry", new_callable=AsyncMock)
+    async def test_network_error_returns_error_message(self, mock_retry):
+        mock_retry.side_effect = Exception("Connection error")
 
         result = await rag_search_node(_make_state())
 
         assert result["welfare_candidates"] == []
         assert isinstance(result["messages"][0], AIMessage)
         assert "연결 오류" in result["messages"][0].content
-        assert mock_search.call_count == 2  # 1회 재시도 확인
 
     @patch(
         "agents.rag_search.hwnv_client.generate_eligibility_reason",

@@ -4,7 +4,7 @@ import os
 
 import httpx
 
-_TIMEOUT = 10.0
+_TIMEOUT = float(os.getenv("RAG_TIMEOUT", "10.0"))
 
 
 def _base_url() -> str:

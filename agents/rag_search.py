@@ -1,13 +1,23 @@
 """RAG 검색 노드 — UserProfile로 복지 서비스 후보 목록 조회."""
 
 import asyncio
+import logging
 import os
 
 from langchain_core.messages import AIMessage
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 import tools.hwnv_client as hwnv_client
 import tools.rag_client as rag_client
 from graph.state import AgentState, UserProfile, WelfareCandidate
+
+logger = logging.getLogger("bokjidream.rag_search")
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=4))
+async def _search_with_retry(profile: dict, top_k: int) -> list[dict]:
+    """RAG 검색 — 최대 3회 지수 백오프 재시도 (1s→2s→4s)."""
+    return await rag_client.search(profile=profile, top_k=top_k)
 
 
 def _profile_to_dict(profile: UserProfile) -> dict:
@@ -39,21 +49,11 @@ async def rag_search_node(state: AgentState) -> dict:
     profile: UserProfile = state["user_profile"]
     top_k = int(os.getenv("RAG_SEARCH_TOP_K", "5"))
 
-    # RAG 호출 (1회 재시도)
     results = None
-    last_error = None
-    for _ in range(2):
-        try:
-            results = await rag_client.search(
-                profile=_profile_to_dict(profile), top_k=top_k
-            )
-            break
-        except Exception as e:
-            last_error = e
-            continue
-
-    if results is None and last_error is not None:
-        print(f"[RAG 오류] {type(last_error).__name__}: {last_error}")
+    try:
+        results = await _search_with_retry(_profile_to_dict(profile), top_k)
+    except Exception as e:
+        logger.warning("[rag_search] RAG 검색 최종 실패: %s", e, exc_info=True)
 
     if results is None:
         error_msg = (
