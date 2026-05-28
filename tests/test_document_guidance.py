@@ -1,5 +1,6 @@
 """서류 안내 노드 테스트."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage
@@ -48,29 +49,35 @@ def _make_state(**kwargs) -> dict:
 class TestDocumentGuidanceNode:
     @patch(
         "agents.document_guidance.load_prompt",
-        return_value="{serv_nm}\n{required_documents}\n{user_info}",
+        return_value="{serv_nm}\n{required_documents}\n{application_method}\n{user_info}",
     )
     @patch("agents.document_guidance.get_llm")
     async def test_returns_document_guidance_string(
         self, mock_get_llm, mock_load_prompt
     ):
-        expected = "1. 신분증 사본: 주민센터에서 발급"
+        expected_doc = "1. 신분증 사본: 주민센터에서 발급"
+        llm_json = json.dumps(
+            {"document_guidance": expected_doc, "application_guide": "신청 방법 안내"}
+        )
         mock_llm = MagicMock()
-        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=expected))
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=llm_json))
         mock_get_llm.return_value = mock_llm
 
         result = await document_guidance_node(_make_state())
 
-        assert result["document_guidance"] == expected
+        assert result["document_guidance"] == expected_doc
 
     @patch(
         "agents.document_guidance.load_prompt",
-        return_value="{serv_nm}\n{required_documents}\n{user_info}",
+        return_value="{serv_nm}\n{required_documents}\n{application_method}\n{user_info}",
     )
     @patch("agents.document_guidance.get_llm")
     async def test_returns_ai_message(self, mock_get_llm, mock_load_prompt):
+        llm_json = json.dumps(
+            {"document_guidance": "서류 안내 내용", "application_guide": "신청 방법"}
+        )
         mock_llm = MagicMock()
-        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="서류 안내 내용"))
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=llm_json))
         mock_get_llm.return_value = mock_llm
 
         result = await document_guidance_node(_make_state())
@@ -79,8 +86,15 @@ class TestDocumentGuidanceNode:
         assert result["messages"][0].content == "서류 안내 내용"
 
     @patch("agents.document_guidance.get_llm")
-    async def test_empty_required_documents_returns_fallback(self, mock_get_llm):
-        state = _make_state(selected_service=_make_selected(required_documents=[]))
+    async def test_empty_required_documents_and_method_returns_fallback(
+        self, mock_get_llm
+    ):
+        """required_documents와 application_method 둘 다 없을 때 fallback."""
+        state = _make_state(
+            selected_service=_make_selected(
+                required_documents=[], application_method=""
+            )
+        )
 
         result = await document_guidance_node(state)
 
@@ -89,7 +103,11 @@ class TestDocumentGuidanceNode:
         mock_get_llm.assert_not_called()
 
     async def test_fallback_message_contains_service_name(self):
-        state = _make_state(selected_service=_make_selected(required_documents=[]))
+        state = _make_state(
+            selected_service=_make_selected(
+                required_documents=[], application_method=""
+            )
+        )
 
         result = await document_guidance_node(state)
 
@@ -97,12 +115,15 @@ class TestDocumentGuidanceNode:
 
     @patch(
         "agents.document_guidance.load_prompt",
-        return_value="{serv_nm}\n{required_documents}\n{user_info}",
+        return_value="{serv_nm}\n{required_documents}\n{application_method}\n{user_info}",
     )
     @patch("agents.document_guidance.get_llm")
     async def test_llm_called_with_service_name(self, mock_get_llm, mock_load_prompt):
+        llm_json = json.dumps(
+            {"document_guidance": "결과", "application_guide": "결과"}
+        )
         mock_llm = MagicMock()
-        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="결과"))
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=llm_json))
         mock_get_llm.return_value = mock_llm
 
         await document_guidance_node(_make_state())
@@ -112,12 +133,15 @@ class TestDocumentGuidanceNode:
 
     @patch(
         "agents.document_guidance.load_prompt",
-        return_value="{serv_nm}\n{required_documents}\n{user_info}",
+        return_value="{serv_nm}\n{required_documents}\n{application_method}\n{user_info}",
     )
     @patch("agents.document_guidance.get_llm")
     async def test_llm_called_with_user_info(self, mock_get_llm, mock_load_prompt):
+        llm_json = json.dumps(
+            {"document_guidance": "결과", "application_guide": "결과"}
+        )
         mock_llm = MagicMock()
-        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="결과"))
+        mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content=llm_json))
         mock_get_llm.return_value = mock_llm
 
         await document_guidance_node(_make_state())
