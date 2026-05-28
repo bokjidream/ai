@@ -51,6 +51,10 @@ class TestUserProfile:
         profile = UserProfile(disability=False, disability_severity=None)
         assert profile.disability_severity is None
 
+    def test_disability_severity_raises_when_not_disabled(self):
+        with pytest.raises(ValidationError):
+            UserProfile(disability=False, disability_severity=DisabilitySeverity.SEVERE)
+
     def test_extra_fields_default_empty(self):
         assert UserProfile().extra_fields == {}
 

@@ -3,7 +3,7 @@ from typing import Annotated
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, computed_field, model_validator
 from typing_extensions import TypedDict
 
 
@@ -70,6 +70,14 @@ class UserProfile(BaseModel):
     is_single_parent: bool | None = None
 
     extra_fields: dict[str, str | int | bool] = {}
+
+    @model_validator(mode="after")
+    def _check_disability_severity(self) -> "UserProfile":
+        if self.disability_severity is not None and not self.disability:
+            raise ValueError(
+                "disability_severity는 disability=True일 때만 설정할 수 있습니다."
+            )
+        return self
 
 
 class WelfareCandidate(BaseModel):
