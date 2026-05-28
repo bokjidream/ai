@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage
 
 import tools.hwnv_client as hwnv_client
 import tools.rag_client as rag_client
+
+logger = logging.getLogger("bokjidream.rag_detail")
 
 if TYPE_CHECKING:
     from graph.state import AgentState, UserProfile, WelfareCandidate
@@ -120,7 +123,7 @@ async def rag_detail_node(state: AgentState) -> dict:
             user_info=user_info,
         )
     except Exception as e:
-        print(f"[hwnv field_extractor 오류] {type(e).__name__}: {e}")
+        logger.warning("[rag_detail] field_extractor 실패: %s", e, exc_info=True)
 
     regular_missing, extra_schemas = _classify_schemas(schemas, profile)
     missing_fields = regular_missing + [f"extra:{s['key']}" for s in extra_schemas]

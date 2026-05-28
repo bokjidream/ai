@@ -1,10 +1,14 @@
 """서류 안내 노드 — required_documents를 사용자 상황에 맞게 안내합니다."""
 
+import logging
+
 from langchain_core.messages import AIMessage
 
 from graph.state import AgentState, UserProfile, WelfareCandidate
 from tools.llm import get_llm
 from tools.prompt_loader import load_prompt
+
+logger = logging.getLogger("bokjidream.document_guidance")
 
 
 def _format_user_info(profile: UserProfile) -> str:
@@ -64,7 +68,7 @@ async def document_guidance_node(state: AgentState) -> dict:
         response = await llm.ainvoke(prompt)
         guidance = response.content
     except Exception as e:
-        print(f"[LLM 오류] document_guidance {type(e).__name__}: {e}")
+        logger.warning("[document_guidance] LLM 호출 실패: %s", e, exc_info=True)
         guidance = (
             f"'{selected.serv_nm}' 서류 안내 생성 중 오류가 발생했습니다. "
             "해당 기관에 직접 문의해 주세요."

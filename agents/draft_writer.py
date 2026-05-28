@@ -1,11 +1,14 @@
 """신청서 작성 가이드 노드 — application_method 원문 기반 신청 안내 생성."""
 
+import logging
 from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
 from graph.state import AgentState, UserProfile, WelfareCandidate
 from tools.llm import get_llm
+
+logger = logging.getLogger("bokjidream.draft_writer")
 
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "draft_writer.txt"
 
@@ -80,7 +83,7 @@ async def draft_writer_node(state: AgentState) -> dict:
         response = await llm.ainvoke(prompt)
         guide = response.content
     except Exception as e:
-        print(f"[LLM 오류] draft_writer {type(e).__name__}: {e}")
+        logger.warning("[draft_writer] LLM 호출 실패: %s", e, exc_info=True)
         guide = (
             f"'{selected.serv_nm}' 신청 안내 생성 중 오류가 발생했습니다. "
             "해당 기관에 직접 문의해 주세요."
