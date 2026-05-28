@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import logging.config
 import os
@@ -54,14 +55,99 @@ logger = logging.getLogger("bokjidream.server")
 
 # 서버 시작 시 lifespan에서 초기화됨
 graph = None
+_pg_pool = None
+
+THREAD_TTL_HOURS = 12
+_CLEANUP_INTERVAL_SECS = 3600  # 1시간마다 실행
+
+
+async def _setup_thread_registry(pool) -> None:
+    async with pool.connection() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS thread_last_active (
+                thread_id TEXT PRIMARY KEY,
+                last_active_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+        """)
+
+
+async def _touch_thread(thread_id: str) -> None:
+    if _pg_pool is None:
+        return
+    async with _pg_pool.connection() as conn:
+        await conn.execute(
+            """
+            INSERT INTO thread_last_active (thread_id, last_active_at)
+            VALUES (%s, NOW())
+            ON CONFLICT (thread_id) DO UPDATE SET last_active_at = NOW()
+            """,
+            (thread_id,),
+        )
+
+
+async def _cleanup_old_threads() -> None:
+    async with _pg_pool.connection() as conn:
+        cur = await conn.execute(
+            "SELECT thread_id FROM thread_last_active"
+            " WHERE last_active_at < NOW() - INTERVAL '%s hours'",
+            (THREAD_TTL_HOURS,),
+        )
+        old_ids = [row[0] for row in await cur.fetchall()]
+        if not old_ids:
+            return
+        for table in ("checkpoint_writes", "checkpoint_blobs", "checkpoints"):
+            try:
+                await conn.execute(
+                    f"DELETE FROM {table} WHERE thread_id = ANY(%s)",  # noqa: S608
+                    (old_ids,),
+                )
+            except Exception:
+                logger.warning("[cleanup] %s 삭제 실패", table)
+        await conn.execute(
+            "DELETE FROM thread_last_active WHERE thread_id = ANY(%s)",
+            (old_ids,),
+        )
+        logger.info("[cleanup] %d개 만료 thread 삭제 완료", len(old_ids))
+
+
+async def _cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(_CLEANUP_INTERVAL_SECS)
+        try:
+            await _cleanup_old_threads()
+        except Exception:
+            logger.exception("[cleanup] 삭제 중 오류")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """서버 시작 시 그래프를 초기화하고, 종료 시 리소스를 정리합니다."""
-    global graph
+    global graph, _pg_pool
     graph = await build_graph()
+
+    cleanup_task = None
+    if os.getenv("GRAPH_CHECKPOINTER") == "postgres":
+        from psycopg_pool import AsyncConnectionPool
+
+        conn_string = os.getenv("POSTGRES_CONN_STRING", "")
+        _pg_pool = AsyncConnectionPool(conn_string, open=False)
+        await _pg_pool.open()
+        await _setup_thread_registry(_pg_pool)
+        cleanup_task = asyncio.create_task(_cleanup_loop())
+        logger.info(
+            "[cleanup] TTL=%dh interval=%ds", THREAD_TTL_HOURS, _CLEANUP_INTERVAL_SECS
+        )  # noqa: E501
+
     yield
+
+    if cleanup_task:
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+    if _pg_pool:
+        await _pg_pool.close()
     # SQLite 모드일 경우 _checkpointer_stack이 GC될 때 커넥션 자동 종료
 
 
@@ -293,6 +379,7 @@ async def chat_start() -> ChatResponse:
     thread_id = str(uuid.uuid4())
     logger.info("[thread=%s] POST /chat/start", thread_id)
     config = {"configurable": {"thread_id": thread_id}}
+    await _touch_thread(thread_id)
     try:
         response = await _run_until_interrupt(thread_id, _initial_state(), config)
         logger.info("[thread=%s] → type=%s", thread_id, response.type)
@@ -318,6 +405,7 @@ async def chat_message(body: MessageRequest) -> ChatResponse:
     if not state.values:
         logger.warning("[thread=%s] thread 없음", thread_id)
         raise HTTPException(status_code=404, detail="thread_id를 찾을 수 없습니다.")
+    await _touch_thread(thread_id)
     try:
         response = await _run_until_interrupt(
             thread_id, Command(resume=body.message), config

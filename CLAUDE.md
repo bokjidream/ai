@@ -19,11 +19,16 @@ uv run pre-commit install     # register hooks (once per clone)
 
 ## Architecture
 
-8-node LangGraph pipeline. See `docs/development_plan.md` for full design.
+8-node LangGraph pipeline (후반 3노드). See `docs/development_plan.md` for full design.
 
 ```
 START → initial_interview ⟲ → rag_search → service_select(HitL) → rag_detail → detail_interview ⟲ → document_guidance → draft_writer → report_writer → END
 ```
+
+**후반 3노드 역할:**
+- `document_guidance`: 서류 안내 + 신청 방법 안내를 LLM 1회 호출(JSON)로 동시 생성. 출력: `document_guidance`, `application_guide`
+- `draft_writer`: `application_forms`를 파일 타입별 처리. HWP/HWPX → 자동 채우기(status: success/skipped/failed), PDF → pdfplumber 빈칸 추출 → LLM 가이드(status: guide_only), 기타 → skip. 출력: `filled_forms`
+- `report_writer`: 위 결과를 마크다운 보고서로 재구성. `filled_forms` status에 따라 📎 다운로드 / 📝 작성 가이드 섹션을 코드에서 추가
 
 ```
 graph/ state.py builder.py   agents/ *.py   tools/ llm.py rag_client.py prompt_loader.py
@@ -84,8 +89,9 @@ Response: { "serv_id", "serv_nm", "required_documents", "application_method", "a
 - All agent nodes are `async def`; return partial `AgentState` dict
 - RAG HTTP calls only through `tools/rag_client.py` — never call `httpx` directly
 - `get_llm()` is the only LLM import point — never import LLM directly
-- `draft_writer` produces text guidance only — no HWP generation
-- `report_writer` reformats only — no new information added
+- `document_guidance` outputs JSON with `document_guidance` + `application_guide` in one LLM call; fallback on JSON parse failure
+- `draft_writer` processes `application_forms` by file type: HWP/HWPX auto-fill via Node.js, PDF via pdfplumber + LLM guide, others skip
+- `report_writer` reformats LLM output, then appends `filled_forms` sections in code (no LLM for file sections)
 
 ## Environment Variables
 
