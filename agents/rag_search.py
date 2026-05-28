@@ -1,6 +1,7 @@
 """RAG 검색 노드 — UserProfile로 복지 서비스 후보 목록 조회."""
 
 import asyncio
+import logging
 import os
 
 from langchain_core.messages import AIMessage
@@ -8,6 +9,8 @@ from langchain_core.messages import AIMessage
 import tools.hwnv_client as hwnv_client
 import tools.rag_client as rag_client
 from graph.state import AgentState, UserProfile, WelfareCandidate
+
+logger = logging.getLogger("bokjidream.rag_search")
 
 
 def _profile_to_dict(profile: UserProfile) -> dict:
@@ -53,7 +56,9 @@ async def rag_search_node(state: AgentState) -> dict:
             continue
 
     if results is None and last_error is not None:
-        print(f"[RAG 오류] {type(last_error).__name__}: {last_error}")
+        logger.warning(
+            "[rag_search] RAG 검색 실패: %s", last_error, exc_info=last_error
+        )
 
     if results is None:
         error_msg = (

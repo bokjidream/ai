@@ -68,6 +68,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="BokjiDream AI Server", lifespan=lifespan)
 
 _CORS_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:3000").split(",")
+_SERVER_ERROR_MSG = "서버 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."
 
 app.add_middleware(
     CORSMiddleware,
@@ -298,7 +299,7 @@ async def chat_start() -> ChatResponse:
         return response
     except Exception as e:
         logger.exception("[thread=%s] /chat/start 오류", thread_id)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=_SERVER_ERROR_MSG) from e
 
 
 @app.post("/chat/message", response_model=ChatResponse)
@@ -325,4 +326,4 @@ async def chat_message(body: MessageRequest) -> ChatResponse:
         return response
     except Exception as e:
         logger.exception("[thread=%s] /chat/message 오류", thread_id)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail=_SERVER_ERROR_MSG) from e

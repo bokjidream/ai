@@ -1,11 +1,14 @@
 """최종 보고서 에이전트 — draft_writer 가이드를 사용자 친화적 마크다운으로 재구성."""
 
+import logging
 from pathlib import Path
 
 from langchain_core.messages import AIMessage
 
 from graph.state import AgentState, WelfareCandidate
 from tools.llm import get_llm
+
+logger = logging.getLogger("bokjidream.report_writer")
 
 _PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "report_writer.txt"
 
@@ -41,7 +44,7 @@ async def report_writer_node(state: AgentState) -> dict:
         response = await llm.ainvoke(prompt)
         report = response.content
     except Exception as e:
-        print(f"[LLM 오류] report_writer {type(e).__name__}: {e}")
+        logger.warning("[report_writer] LLM 호출 실패: %s", e, exc_info=True)
         report = (
             f"'{selected.serv_nm}' 보고서 생성 중 오류가 발생했습니다. "
             "잠시 후 다시 시도해 주세요."

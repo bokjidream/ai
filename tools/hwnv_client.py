@@ -1,10 +1,13 @@
 """hwnv.cloud 인터뷰 API 클라이언트."""
 
 import json
+import logging
 import os
 
 import httpx
 from dotenv import load_dotenv
+
+logger = logging.getLogger("bokjidream.hwnv_client")
 
 load_dotenv()
 
@@ -254,4 +257,7 @@ async def generate_eligibility_reason(
             resp.raise_for_status()
             return resp.json()["choices"][0]["message"]["content"]
     except Exception:
+        logger.warning(
+            "eligibility_reason 생성 실패: serv_nm=%s", serv_nm, exc_info=True
+        )
         return ""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from langchain_core.messages import AIMessage, HumanMessage
@@ -15,6 +16,8 @@ from graph.state import (  # noqa: TCH001
     UserProfile,
 )
 from tools import hwnv_client
+
+logger = logging.getLogger("bokjidream.initial_interview")
 
 if TYPE_CHECKING:
     from graph.state import AgentState
@@ -82,7 +85,12 @@ async def initial_interview_node(state: AgentState) -> dict | Command:
                 pre_user_message=state.get("interview_last_answer", ""),
             )
         except Exception as e:
-            print(f"[hwnv ask_question 오류] {type(e).__name__}: {e}")
+            logger.warning(
+                "[initial_interview] ask_question 실패 field=%s: %s",
+                field,
+                e,
+                exc_info=True,
+            )
             error_msg = (
                 "죄송합니다. 질문 생성 중 오류가 발생했습니다. "
                 "잠시 후 다시 시도해 주세요."
@@ -98,7 +106,12 @@ async def initial_interview_node(state: AgentState) -> dict | Command:
     try:
         result = await hwnv_client.extract_value(field, question, user_answer)
     except Exception as e:
-        print(f"[hwnv extract_value 오류] {type(e).__name__}: {e}")
+        logger.warning(
+            "[initial_interview] extract_value 실패 field=%s: %s",
+            field,
+            e,
+            exc_info=True,
+        )
         return {
             "initial_missing_fields": missing,
             "interview_current_field": field,
