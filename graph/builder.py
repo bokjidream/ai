@@ -8,13 +8,18 @@ from langgraph.constants import END, START
 from langgraph.graph import StateGraph
 
 from agents.detail_interview import detail_interview_node
-from agents.document_guidance import document_guidance_node
-from agents.draft_writer import draft_writer_node
+from agents.document_guidance import document_guidance_node, service_detail_pause_node
+from agents.draft_writer import (
+    draft_field_extractor_node,
+    draft_fields_pause_node,
+    draft_writer_node,
+)
 from agents.initial_interview import initial_interview_node
 from agents.rag_detail import rag_detail_node
 from agents.rag_search import rag_search_node
 from agents.report_writer import report_writer_node
 from agents.service_select import service_select_node
+from graph.config import is_skip_interview
 from graph.state import AgentState
 
 load_dotenv()
@@ -56,6 +61,8 @@ def route_after_rag_search(state: AgentState) -> str:
 
 def route_after_detail_interview(state: AgentState) -> str:
     """2단계 인터뷰 후 라우팅: 누락 필드 있으면 재진입, 없으면 document_guidance."""
+    if is_skip_interview():
+        return "document_guidance"
     if state["detail_missing_fields"]:
         return "detail_interview"
     return "document_guidance"
@@ -81,6 +88,9 @@ async def build_graph():
     builder.add_node("rag_detail", rag_detail_node)
     builder.add_node("detail_interview", detail_interview_node)
     builder.add_node("document_guidance", document_guidance_node)
+    builder.add_node("service_detail_pause", service_detail_pause_node)
+    builder.add_node("draft_field_extractor", draft_field_extractor_node)
+    builder.add_node("draft_fields_pause", draft_fields_pause_node)
     builder.add_node("draft_writer", draft_writer_node)
     builder.add_node("report_writer", report_writer_node)
 
@@ -91,7 +101,10 @@ async def build_graph():
     builder.add_edge("service_select", "rag_detail")
     builder.add_edge("rag_detail", "detail_interview")
     builder.add_conditional_edges("detail_interview", route_after_detail_interview)
-    builder.add_edge("document_guidance", "draft_writer")
+    builder.add_edge("document_guidance", "service_detail_pause")
+    builder.add_edge("service_detail_pause", "draft_field_extractor")
+    builder.add_edge("draft_field_extractor", "draft_fields_pause")
+    builder.add_edge("draft_fields_pause", "draft_writer")
     builder.add_edge("draft_writer", "report_writer")
     builder.add_edge("report_writer", END)
 

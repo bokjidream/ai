@@ -19,7 +19,14 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from graph.builder import build_graph
-from graph.state import UserProfile, WelfareCandidate
+from graph.state import (
+    DisabilitySeverity,
+    EmploymentStatus,
+    IncomeLevel,
+    MaritalStatus,
+    UserProfile,
+    WelfareCandidate,
+)
 from tools.hwp_filler import get_filled_forms_dir
 
 load_dotenv()
@@ -179,11 +186,27 @@ class MessageRequest(BaseModel):
     message: str
 
 
+_TEST_PROFILE = UserProfile(
+    age=65,
+    region="서울",
+    household_size=1,
+    marital_status=MaritalStatus.SINGLE,
+    has_children=False,
+    disability=True,
+    disability_severity=DisabilitySeverity.MILD,
+    employment_status=EmploymentStatus.INACTIVE,
+    income_level=IncomeLevel.BASIC,
+)
+
+
 def _initial_state() -> dict:
+    skip = os.getenv("SKIP_INTERVIEW", "false").lower() == "true"
     return {
         "messages": [],
-        "user_profile": UserProfile(),
-        "initial_missing_fields": [
+        "user_profile": _TEST_PROFILE if skip else UserProfile(),
+        "initial_missing_fields": []
+        if skip
+        else [
             "age",
             "region",
             "household_size",
@@ -208,6 +231,10 @@ def _initial_state() -> dict:
         "detail_last_answer": "",
         "extra_field_schemas": [],
         "filled_forms": [],
+        "draft_extracted_fields": [],
+        "draft_form_title": "",
+        "draft_scan_path": "",
+        "user_draft_fields": {},
     }
 
 
@@ -277,6 +304,32 @@ def _service_select_response(
     )
 
 
+def _service_detail_response(thread_id: str, state) -> ChatResponse:
+    selected: WelfareCandidate | None = state.values.get("selected_service")
+    candidates: list[WelfareCandidate] = state.values.get("welfare_candidates", [])
+    return ChatResponse(
+        thread_id=thread_id,
+        type="service_detail",
+        data={
+            "document_guidance": state.values.get("document_guidance", ""),
+            "application_guide": state.values.get("application_guide", ""),
+            "selected_service": selected.model_dump() if selected else None,
+            "welfare_candidates": [c.model_dump() for c in candidates],
+        },
+    )
+
+
+def _draft_fields_response(thread_id: str, interrupt_value: dict) -> ChatResponse:
+    return ChatResponse(
+        thread_id=thread_id,
+        type="draft_fields",
+        data={
+            "fields": interrupt_value.get("fields", []),
+            "form_title": interrupt_value.get("form_title", "신청서"),
+        },
+    )
+
+
 def _done_response(thread_id: str, state) -> ChatResponse:
     selected: WelfareCandidate | None = state.values.get("selected_service")
     candidates: list[WelfareCandidate] = state.values.get("welfare_candidates", [])
@@ -339,6 +392,18 @@ async def _run_until_interrupt(
                     ", ".join(getattr(c, "serv_nm", "?") for c in candidates),
                 )
                 return _service_select_response(thread_id, interrupt_value, state)
+            if interrupt_value.get("type") == "service_detail":
+                logger.info("[thread=%s] INTERRUPT → service_detail", thread_id)
+                return _service_detail_response(thread_id, state)
+            if interrupt_value.get("type") == "draft_fields":
+                fields = interrupt_value.get("fields", [])
+                logger.info(
+                    "[thread=%s] INTERRUPT → draft_fields | %d개: %s",
+                    thread_id,
+                    len(fields),
+                    [f.get("label") for f in fields],
+                )
+                return _draft_fields_response(thread_id, interrupt_value)
         else:
             _log_state_chunk(chunk)
 
@@ -405,6 +470,18 @@ async def chat_message(body: MessageRequest) -> ChatResponse:
     if not state.values:
         logger.warning("[thread=%s] thread 없음", thread_id)
         raise HTTPException(status_code=404, detail="thread_id를 찾을 수 없습니다.")
+
+    # draft_fields interrupt 상태에서 __start_draft__ 중복 → 재개 없이 재반환
+    if body.message == "__start_draft__" and state.next:
+        interrupts = state.tasks[0].interrupts if state.tasks else []
+        if interrupts:
+            iv = interrupts[0].value
+            if isinstance(iv, dict) and iv.get("type") == "draft_fields":
+                logger.info(
+                    "[thread=%s] draft_fields 중복 __start_draft__ → 재반환", thread_id
+                )
+                return _draft_fields_response(thread_id, iv)
+
     await _touch_thread(thread_id)
     try:
         response = await _run_until_interrupt(
