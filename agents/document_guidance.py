@@ -1,57 +1,22 @@
-"""서류 안내 + 신청 방법 안내 노드 — LLM 1회 호출로 JSON 동시 출력."""
+"""서류 안내 + 신청 방법 안내 노드 — LLM 1회 호출로 JSON 동시 출력.
+
+document_guidance_node: LLM 호출 후 state 커밋 (interrupt 없음)
+service_detail_pause_node: interrupt만 수행 → 웹에서 '초안 작성하기' 버튼 클릭 대기
+"""
 
 import json
 import logging
 
 from langchain_core.messages import AIMessage
+from langgraph.types import interrupt
 
 from graph.state import AgentState, UserProfile, WelfareCandidate
+from tools.json_utils import parse_llm_json
 from tools.llm import get_llm
+from tools.profile_utils import format_user_profile
 from tools.prompt_loader import load_prompt
 
 logger = logging.getLogger("bokjidream.document_guidance")
-
-
-def _format_user_info(profile: UserProfile) -> str:
-    lines = []
-    if profile.age is not None:
-        lines.append(f"- 나이: {profile.age}세")
-    if profile.region is not None:
-        lines.append(f"- 지역: {profile.region}")
-    if profile.income_level is not None:
-        lines.append(f"- 소득 수준: {profile.income_level.value}")
-    if profile.disability is not None:
-        lines.append(f"- 장애 여부: {'있음' if profile.disability else '없음'}")
-    if profile.disability_type is not None:
-        lines.append(f"- 장애 유형: {profile.disability_type}")
-    if profile.disability_grade is not None:
-        lines.append(f"- 장애 등급: {profile.disability_grade}")
-    if profile.household_size is not None:
-        lines.append(f"- 가구원 수: {profile.household_size}명")
-    if profile.employment_status is not None:
-        lines.append(f"- 취업 상태: {profile.employment_status.value}")
-    if profile.housing_type is not None:
-        lines.append(f"- 주거 유형: {profile.housing_type}")
-    if profile.is_veteran is not None:
-        lines.append(f"- 국가유공자: {'해당' if profile.is_veteran else '비해당'}")
-    if profile.is_single_parent is not None:
-        val = "해당" if profile.is_single_parent else "비해당"
-        lines.append(f"- 한부모 가정: {val}")
-    for key, val in profile.extra_fields.items():
-        lines.append(f"- {key}: {val}")
-    return "\n".join(lines) if lines else "수집된 사용자 정보 없음"
-
-
-def _parse_json_response(content: str) -> dict:
-    """LLM 응답에서 JSON을 파싱합니다. 마크다운 펜스 제거 후 시도."""
-    content = content.strip()
-    if content.startswith("```"):
-        parts = content.split("```", 2)
-        inner = parts[1]
-        if inner.lower().startswith("json"):
-            inner = inner[4:]
-        content = inner.strip()
-    return json.loads(content)
 
 
 async def document_guidance_node(state: AgentState) -> dict:
@@ -92,7 +57,7 @@ async def document_guidance_node(state: AgentState) -> dict:
         serv_nm=selected.serv_nm,
         required_documents=required_docs_text,
         application_method=selected.application_method or "신청방법 정보 없음",
-        user_info=_format_user_info(profile),
+        user_info=format_user_profile(profile, bullet=True),
     )
 
     llm = get_llm()
@@ -109,10 +74,10 @@ async def document_guidance_node(state: AgentState) -> dict:
         }
 
     try:
-        parsed = _parse_json_response(content)
+        parsed = parse_llm_json(content)
         doc_guidance = parsed.get("document_guidance") or fallback_doc
         app_guide = parsed.get("application_guide") or fallback_guide
-    except json.JSONDecodeError as e:
+    except (json.JSONDecodeError, ValueError) as e:
         logger.warning("[document_guidance] JSON 파싱 실패: %s", e, exc_info=True)
         doc_guidance = fallback_doc
         app_guide = fallback_guide
@@ -122,3 +87,13 @@ async def document_guidance_node(state: AgentState) -> dict:
         "application_guide": app_guide,
         "messages": [AIMessage(content=doc_guidance)],
     }
+
+
+async def service_detail_pause_node(state: AgentState) -> dict:
+    """서비스 상세 페이지 표시 후 '초안 작성하기' 클릭 대기.
+
+    document_guidance_node가 state를 커밋한 뒤 이 노드가 interrupt를 발생시키므로
+    웹이 받는 service_detail 응답에 guidance 내용이 정상적으로 포함된다.
+    """
+    interrupt({"type": "service_detail"})
+    return {}

@@ -1,5 +1,6 @@
 """서비스 선택 HitL 노드 테스트."""
 
+import os
 from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
@@ -59,6 +60,7 @@ def _make_state(**kwargs) -> AgentState:
     return defaults  # type: ignore[return-value]
 
 
+@patch.dict(os.environ, {"SKIP_INTERVIEW": "false", "SKIP_SERVICE_ID": ""})
 class TestServiceSelectNode:
     @patch("agents.service_select.interrupt", return_value="1")
     async def test_valid_selection_sets_selected_service(self, mock_interrupt):

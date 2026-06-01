@@ -103,6 +103,29 @@ async def initial_interview_node(state: AgentState) -> dict | Command:
 
     user_answer: str = interrupt({"question": question, "field": field})
 
+    # 건너뛰기 요청 — 테스트용 기본값으로 프로필을 채우고 즉시 RAG 검색으로 진행
+    if user_answer.strip() == "__skip__":
+        logger.info(
+            "[initial_interview] 1단계 인터뷰 건너뛰기 요청 — 테스트 기본값 적용"
+        )
+        test_profile = UserProfile(
+            age=65,
+            region="서울",
+            household_size=1,
+            marital_status=MaritalStatus.SINGLE,
+            has_children=False,
+            disability=True,
+            disability_severity=DisabilitySeverity.MILD,
+            employment_status=EmploymentStatus.INACTIVE,
+            income_level=IncomeLevel.BASIC,
+        )
+        return {
+            "user_profile": test_profile,
+            "initial_missing_fields": [],
+            "interview_current_field": None,
+            "pending_question": None,
+        }
+
     try:
         result = await hwnv_client.extract_value(field, question, user_answer)
     except Exception as e:

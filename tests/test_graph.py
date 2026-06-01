@@ -1,3 +1,6 @@
+import os
+from unittest.mock import patch
+
 from langgraph.constants import END
 
 from graph.builder import (
@@ -73,6 +76,7 @@ class TestConditionalEdges:
         state = _base_state(welfare_candidates=[_make_candidate()])
         assert route_after_rag_search(state) == "service_select"
 
+    @patch.dict(os.environ, {"SKIP_INTERVIEW": "false"})
     def test_detail_interview_reentries_when_missing(self):
         state = _base_state(detail_missing_fields=["household_type"])
         assert route_after_detail_interview(state) == "detail_interview"

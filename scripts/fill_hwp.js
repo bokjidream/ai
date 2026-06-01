@@ -118,6 +118,38 @@ function extractLabelCandidates(cells) {
   return labels;
 }
 
+/**
+ * col=0 이고 rowSpan>1 인 셀을 섹션 헤더로 인식해
+ * (s,p,c,row) → 섹션 텍스트 맵을 반환한다.
+ * 예: 간급연락처 셀이 3행 span → 해당 행들의 라벨에 "간급연락처 - " 접두어 부여에 사용.
+ */
+function buildSectionContextMap(cells) {
+  const map = new Map();
+  for (const cell of cells) {
+    if (cell.col !== 0 || cell.rowSpan <= 1) continue;
+    const text = cell.text.trim();
+    const collapsed = collapseSpaces(text);
+    if (collapsed.length < 1 || collapsed.length > 12) continue;
+    for (let r = cell.row; r < cell.row + cell.rowSpan; r++) {
+      const key = `${cell.s},${cell.p},${cell.c},${r}`;
+      if (!map.has(key)) map.set(key, text);
+    }
+  }
+  return map;
+}
+
+/**
+ * 라벨 셀과 같은 행에 체크박스(□○◎●) 셀이 하나라도 있으면 true.
+ * 시력·청력·장비구분 같은 체크박스 그룹 라벨 감지에 사용한다.
+ */
+function hasCheckboxInRow(cells, labelCell) {
+  return cells.some(c =>
+    c.s === labelCell.s && c.p === labelCell.p && c.c === labelCell.c &&
+    c.row === labelCell.row && c.cellIdx !== labelCell.cellIdx &&
+    /[□○◎●]/.test(c.text)
+  );
+}
+
 /** 라벨 셀에 대응하는 값 셀을 찾는다. */
 function findValueCell(cells, labelCell) {
   const { s, p, c, row, col, colSpan } = labelCell;
@@ -265,11 +297,36 @@ function writeHwpxPatched(inputPath, outputPath, fills) {
 
 async function scanMode(inputPath) {
   const { loadDocument } = loadKSkillRhwp();
-  const doc = await loadDocument(inputPath);
+  let doc;
+  try {
+    doc = await loadDocument(inputPath);
+  } catch (e) {
+    process.stdout.write(JSON.stringify({ ok: false, labels: [], text_labels: [], error: String(e) }));
+    return;
+  }
   try {
     const cells = scanTableCells(doc);
     const labels = extractLabelCandidates(cells);
-    process.stdout.write(JSON.stringify({ ok: true, labels }));
+    const sectionCtx = buildSectionContextMap(cells);
+
+    // text_labels: 체크박스 행 제거 + 섹션 context 부여 → {id, label} 배열
+    const textLabels = [];
+    for (const label of labels) {
+      if (/^[□○◎●]/.test(collapseSpaces(label))) continue;
+      const labelCell = cells.find(c => c.text.trim() === label);
+      if (labelCell && hasCheckboxInRow(cells, labelCell)) continue;
+
+      let displayLabel = label;
+      if (labelCell && labelCell.col > 0) {
+        const sectionKey = `${labelCell.s},${labelCell.p},${labelCell.c},${labelCell.row}`;
+        const section = sectionCtx.get(sectionKey);
+        if (section) displayLabel = `${collapseSpaces(section)} - ${label.trim()}`;
+      }
+
+      textLabels.push({ id: label, label: displayLabel });
+    }
+
+    process.stdout.write(JSON.stringify({ ok: true, labels, text_labels: textLabels }));
   } finally {
     doc.free();
   }
@@ -278,31 +335,60 @@ async function scanMode(inputPath) {
 async function fillMode(inputPath, outputPath, mappingFilePath) {
   const fieldMapping = JSON.parse(fs.readFileSync(mappingFilePath, "utf8"));
   const { loadDocument } = loadKSkillRhwp();
-  const doc = await loadDocument(inputPath);
+  let doc;
+  try {
+    doc = await loadDocument(inputPath);
+  } catch (e) {
+    process.stdout.write(JSON.stringify({ ok: false, count: 0, results: [], error: `loadDocument 실패: ${String(e)}` }));
+    return;
+  }
 
   try {
     const cells = scanTableCells(doc);
     const format = doc.getSourceFormat(); // "hwp" | "hwpx"
     const results = [];
     const fills = []; // HWPX 전용: XML 패치에 필요한 정보
+    // 이미 채운 값 셀 ID 추적 — LLM 값보다 나중에 오는 user 값이 같은 셀을 override 가능하도록
+    const filledCellIds = new Set();
 
     for (const [label, value] of Object.entries(fieldMapping)) {
       if (!value || String(value).trim() === "") continue;
 
       const normalizedLabel = collapseSpaces(label);
-      const labelCell = cells.find(
-        (cell) => collapseSpaces(cell.text).includes(normalizedLabel)
-      );
+      // exact match 우선, 실패 시 includes fallback
+      // includes만 쓰면 "가족관계증명서" 같은 긴 설명 셀이 "관계" 라벨보다 먼저 매칭됨
+      const labelCell =
+        cells.find((cell) => collapseSpaces(cell.text) === normalizedLabel) ??
+        cells.find((cell) => collapseSpaces(cell.text).includes(normalizedLabel));
       if (!labelCell) {
         results.push({ label, matched: false });
         continue;
       }
 
-      const valueCell = findValueCell(cells, labelCell);
+      // 값 셀을 찾을 때, 이미 채운 셀도 허용 (user override)
+      const valueCell = (() => {
+        const { s, p, c, row, col, colSpan, rowSpan } = labelCell;
+        const rightCol = col + colSpan;
+        const right = cells.find(cell =>
+          cell.s === s && cell.p === p && cell.c === c &&
+          cell.row === row && cell.col === rightCol
+        );
+        const cellId = (cell) => `${cell.s},${cell.p},${cell.c},${cell.cellIdx}`;
+        if (right && (isValueCell(right.text) || filledCellIds.has(cellId(right)))) return right;
+        const below = cells.find(cell =>
+          cell.s === s && cell.p === p && cell.c === c &&
+          cell.row === row + rowSpan && cell.col === col &&
+          (isValueCell(cell.text) || filledCellIds.has(cellId(cell)))
+        );
+        return below || null;
+      })();
+
       if (!valueCell) {
         results.push({ label, matched: true, filled: false, reason: "값 셀 없음" });
         continue;
       }
+
+      const vCellId = `${valueCell.s},${valueCell.p},${valueCell.c},${valueCell.cellIdx}`;
 
       if (format === "hwpx") {
         // HWPX: XML 직접 패치 — WASM insertTextInCell 사용 안 함
@@ -312,6 +398,8 @@ async function fillMode(inputPath, outputPath, mappingFilePath) {
           valueCellRow: valueCell.row,
           value: String(value),
         });
+        filledCellIds.add(vCellId);
+        valueCell.text = String(value);
         results.push({ label, matched: true, filled: true, value });
       } else {
         // HWP: 기존 WASM API 사용
@@ -320,6 +408,7 @@ async function fillMode(inputPath, outputPath, mappingFilePath) {
           const len = doc.getCellParagraphLength(s, p, c, cellIdx, 0);
           if (len > 0) doc.deleteTextInCell(s, p, c, cellIdx, 0, 0, len);
           doc.insertTextInCell(s, p, c, cellIdx, 0, 0, String(value));
+          filledCellIds.add(vCellId);
           valueCell.text = String(value);
           results.push({ label, matched: true, filled: true, value });
         } catch (e) {
@@ -331,7 +420,12 @@ async function fillMode(inputPath, outputPath, mappingFilePath) {
     if (format === "hwpx") {
       writeHwpxPatched(inputPath, outputPath, fills);
     } else {
-      fs.writeFileSync(outputPath, Buffer.from(doc.exportHwp()));
+      try {
+        fs.writeFileSync(outputPath, Buffer.from(doc.exportHwp()));
+      } catch (e) {
+        process.stdout.write(JSON.stringify({ ok: false, count: 0, results, error: `exportHwp 실패: ${String(e)}` }));
+        return;
+      }
     }
 
     const fillCount = results.filter((r) => r.filled).length;

@@ -125,3 +125,7 @@ class AgentState(TypedDict):
     detail_last_answer: str  # 직전 2단계 사용자 답변
     extra_field_schemas: list[dict]  # field_extractor가 생성한 extra 필드 스키마
     filled_forms: list[dict]  # form_filler_node가 생성한 완성 HWP 파일 메타데이터
+    draft_extracted_fields: list[dict]  # 웹 폼에 표시할 4-5개 필드 [{id, label, type}]
+    draft_form_title: str  # 필드 추출 대상 신청서 제목 (pause 노드에서 사용)
+    draft_scan_path: str  # extractor가 남긴 scan_temp 경로 (writer에서 재사용)
+    user_draft_fields: dict[str, str]  # 사용자가 입력한 값 {id: value}

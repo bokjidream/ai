@@ -1,5 +1,6 @@
 """draft_writer_node 단위 테스트 (HWP/HWPX 자동 채우기 + PDF 가이드)."""
 
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -58,6 +59,7 @@ _CONFIG = {"configurable": {"thread_id": "test-thread-001"}}
 
 
 @pytest.mark.asyncio
+@patch.dict(os.environ, {"SKIP_INTERVIEW": "false"})
 async def test_no_application_forms_returns_empty():
     """application_forms가 없을 때 빈 리스트 반환."""
     state = _make_state(

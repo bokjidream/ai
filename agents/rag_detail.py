@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage
 
 import tools.hwnv_client as hwnv_client
 import tools.rag_client as rag_client
+from graph.config import is_skip_interview
 
 logger = logging.getLogger("bokjidream.rag_detail")
 
@@ -97,6 +98,8 @@ async def rag_detail_node(state: AgentState) -> dict:
 
     updated = selected.model_copy(
         update={
+            "serv_nm": detail.get("serv_nm", "") or selected.serv_nm,
+            "serv_dgst": detail.get("serv_dgst", "") or selected.serv_dgst,
             "required_documents": detail.get("required_documents", []),
             "application_method": detail.get("application_method", ""),
             "application_url": detail.get("application_url"),
@@ -104,6 +107,13 @@ async def rag_detail_node(state: AgentState) -> dict:
             "detail_fetched": True,
         }
     )
+
+    if is_skip_interview():
+        return {
+            "selected_service": updated,
+            "detail_missing_fields": [],
+            "extra_field_schemas": [],
+        }
 
     user_info = {
         k: v
