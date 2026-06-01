@@ -137,6 +137,15 @@ async def detail_interview_node(state: AgentState) -> dict | Command:
 
     user_answer: str = interrupt({"question": question, "field": field})
 
+    # 건너뛰기 요청 — 모든 2단계 필드를 비워 document_guidance로 진행
+    if user_answer.strip() == "__skip__":
+        logger.info("[detail_interview] 2단계 인터뷰 건너뛰기 요청")
+        return {
+            "detail_missing_fields": [],
+            "detail_current_field": None,
+            "pending_question": None,
+        }
+
     try:
         result = await hwnv_client.extract_detail_value(
             field_info, question, user_answer
