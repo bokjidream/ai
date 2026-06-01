@@ -115,14 +115,9 @@ class TestProfileToDict:
 
 
 class TestRagSearchNode:
-    @patch(
-        "agents.rag_search.hwnv_client.generate_eligibility_reason",
-        new_callable=AsyncMock,
-    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
-    async def test_returns_candidates_on_success(self, mock_search, mock_reason):
+    async def test_returns_candidates_on_success(self, mock_search):
         mock_search.return_value = _DUMMY_RAG_RESULTS
-        mock_reason.return_value = "해당 서비스 대상자입니다."
 
         result = await rag_search_node(_make_state())
 
@@ -131,18 +126,13 @@ class TestRagSearchNode:
             isinstance(c, WelfareCandidate) for c in result["welfare_candidates"]
         )
 
-    @patch(
-        "agents.rag_search.hwnv_client.generate_eligibility_reason",
-        new_callable=AsyncMock,
-    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
-    async def test_priority_assigned_by_score_order(self, mock_search, mock_reason):
+    async def test_priority_assigned_by_score_order(self, mock_search):
         unsorted = [
             {**_DUMMY_RAG_RESULTS[1], "score": 0.80},
             {**_DUMMY_RAG_RESULTS[0], "score": 0.95},
         ]
         mock_search.return_value = unsorted
-        mock_reason.return_value = ""
 
         result = await rag_search_node(_make_state())
 
@@ -152,14 +142,8 @@ class TestRagSearchNode:
         assert candidates[1].priority == 2
         assert candidates[1].score == 0.80
 
-    @patch(
-        "agents.rag_search.hwnv_client.generate_eligibility_reason",
-        new_callable=AsyncMock,
-    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
-    async def test_empty_result_returns_no_candidates_with_message(
-        self, mock_search, mock_reason
-    ):
+    async def test_empty_result_returns_no_candidates_with_message(self, mock_search):
         mock_search.return_value = []
 
         result = await rag_search_node(_make_state())
@@ -178,19 +162,11 @@ class TestRagSearchNode:
         assert isinstance(result["messages"][0], AIMessage)
         assert "연결 오류" in result["messages"][0].content
 
-    @patch(
-        "agents.rag_search.hwnv_client.generate_eligibility_reason",
-        new_callable=AsyncMock,
-    )
     @patch("agents.rag_search.rag_client.search", new_callable=AsyncMock)
-    async def test_eligibility_reason_generated_per_candidate(
-        self, mock_search, mock_reason
-    ):
+    async def test_eligibility_reason_is_empty(self, mock_search):
         mock_search.return_value = _DUMMY_RAG_RESULTS
-        mock_reason.return_value = "적합한 서비스입니다."
 
         result = await rag_search_node(_make_state())
 
-        assert mock_reason.call_count == len(_DUMMY_RAG_RESULTS)
         for candidate in result["welfare_candidates"]:
-            assert candidate.eligibility_reason == "적합한 서비스입니다."
+            assert candidate.eligibility_reason == ""

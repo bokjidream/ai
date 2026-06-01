@@ -1,5 +1,6 @@
 """RAG 상세 조회 노드 테스트."""
 
+import os
 from unittest.mock import AsyncMock, patch
 
 from langchain_core.messages import AIMessage
@@ -74,6 +75,7 @@ _DUMMY_DETAIL = {
 }
 
 
+@patch.dict(os.environ, {"SKIP_INTERVIEW": "false"})
 class TestRagDetailNode:
     @patch(
         "agents.rag_detail.hwnv_client.extract_extra_field_schemas",
