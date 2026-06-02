@@ -1,11 +1,13 @@
 """서류 안내 + 신청 방법 안내 노드 — LLM 1회 호출로 JSON 동시 출력.
 
 document_guidance_node: LLM 호출 후 state 커밋 (interrupt 없음)
-service_detail_pause_node: interrupt만 수행 → 웹에서 '초안 작성하기' 버튼 클릭 대기
+service_detail_pause_node: interrupt만 수행 → 웹이 /report로 이동 후 HWP 스캔 진행
 """
 
+import asyncio
 import json
 import logging
+import os
 
 from langchain_core.messages import AIMessage
 from langgraph.types import interrupt
@@ -16,7 +18,34 @@ from tools.llm import get_llm
 from tools.profile_utils import format_user_profile
 from tools.prompt_loader import load_prompt
 
+_LLM_MAX_RETRY = int(os.getenv("LLM_MAX_RETRY", "2"))
+
 logger = logging.getLogger("bokjidream.document_guidance")
+
+_REFERENCE_KEYWORDS = ("안내", "공문", "리플릿", "팸플릿", "매뉴얼", "홍보")
+
+
+def _classify_application_forms(
+    forms: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """application_forms를 실제 신청서와 참고자료(안내문/공문)로 분류.
+
+    Returns:
+        (application_forms, reference_docs)
+        - application_forms: draft_writer로 전달할 신청서 목록
+        - reference_docs: 보고서에 링크로만 제공할 참고자료 [{"title", "url"}]
+    """
+    app_forms: list[dict] = []
+    ref_docs: list[dict] = []
+
+    for form in forms:
+        title: str = form.get("title", "")
+        if any(kw in title for kw in _REFERENCE_KEYWORDS):
+            ref_docs.append({"title": title, "url": form.get("url", "")})
+        else:
+            app_forms.append(form)
+
+    return app_forms, ref_docs
 
 
 async def document_guidance_node(state: AgentState) -> dict:
@@ -39,10 +68,16 @@ async def document_guidance_node(state: AgentState) -> dict:
         "해당 기관에 직접 문의하여 신청 방법을 확인해 주세요."
     )
 
+    app_forms, ref_docs = _classify_application_forms(selected.application_forms)
+
     if not has_documents and not has_method:
         return {
             "document_guidance": fallback_doc,
             "application_guide": fallback_guide,
+            "selected_service": selected.model_copy(
+                update={"application_forms": app_forms}
+            ),
+            "reference_docs": ref_docs,
             "messages": [AIMessage(content=fallback_doc)],
         }
 
@@ -61,39 +96,53 @@ async def document_guidance_node(state: AgentState) -> dict:
     )
 
     llm = get_llm()
+    doc_guidance = fallback_doc
+    app_guide = fallback_guide
 
-    try:
-        response = await llm.ainvoke(prompt)
-        content = response.content
-    except Exception as e:
-        logger.warning("[document_guidance] LLM 호출 실패: %s", e, exc_info=True)
-        return {
-            "document_guidance": fallback_doc,
-            "application_guide": fallback_guide,
-            "messages": [AIMessage(content=fallback_doc)],
-        }
-
-    try:
-        parsed = parse_llm_json(content)
-        doc_guidance = parsed.get("document_guidance") or fallback_doc
-        app_guide = parsed.get("application_guide") or fallback_guide
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.warning("[document_guidance] JSON 파싱 실패: %s", e, exc_info=True)
-        doc_guidance = fallback_doc
-        app_guide = fallback_guide
+    for attempt in range(1, _LLM_MAX_RETRY + 1):
+        try:
+            response = await llm.ainvoke(prompt)
+            content = response.content
+            parsed = parse_llm_json(content)
+            doc_guidance = parsed.get("document_guidance") or fallback_doc
+            app_guide = parsed.get("application_guide") or fallback_guide
+            break
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.warning(
+                "[document_guidance] JSON 파싱 실패 (시도 %d/%d): %s",
+                attempt,
+                _LLM_MAX_RETRY,
+                e,
+                exc_info=True,
+            )
+            if attempt < _LLM_MAX_RETRY:
+                await asyncio.sleep(1)
+        except Exception as e:
+            logger.warning(
+                "[document_guidance] LLM 호출 실패 (시도 %d/%d): %s",
+                attempt,
+                _LLM_MAX_RETRY,
+                e,
+                exc_info=True,
+            )
+            break
 
     return {
         "document_guidance": doc_guidance,
         "application_guide": app_guide,
+        "selected_service": selected.model_copy(
+            update={"application_forms": app_forms}
+        ),
+        "reference_docs": ref_docs,
         "messages": [AIMessage(content=doc_guidance)],
     }
 
 
 async def service_detail_pause_node(state: AgentState) -> dict:
-    """서비스 상세 페이지 표시 후 '초안 작성하기' 클릭 대기.
+    """서비스 상세 안내 후 HWP 스캔 대기.
 
-    document_guidance_node가 state를 커밋한 뒤 이 노드가 interrupt를 발생시키므로
-    웹이 받는 service_detail 응답에 guidance 내용이 정상적으로 포함된다.
+    document_guidance_node가 state를 커밋한 뒤 interrupt → 웹이 /report로 이동.
+    /report에서 __start_draft__를 보내면 draft_field_extractor가 이어서 실행된다.
     """
     interrupt({"type": "service_detail"})
     return {}
