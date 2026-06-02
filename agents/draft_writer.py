@@ -496,7 +496,7 @@ async def draft_field_extractor_node(state: AgentState, config: RunnableConfig) 
     hwp_forms = [f for f in forms if f.get("file_type", "").lower() in _SUPPORTED_HWP]
     hwp_form = next(
         (f for f in hwp_forms if _is_application_form(f.get("title", ""))), None
-    ) or (hwp_forms[0] if hwp_forms else None)
+    )
 
     if not hwp_form:
         return {
@@ -654,7 +654,7 @@ async def draft_writer_node(state: AgentState, config: RunnableConfig) -> dict:
     hwp_forms = [f for f in forms if f.get("file_type", "").lower() in _SUPPORTED_HWP]
     scanned_form = next(
         (f for f in hwp_forms if _is_application_form(f.get("title", ""))), None
-    ) or (hwp_forms[0] if hwp_forms else None)
+    )
 
     # 파일 타입별 코루틴 수집 — 원본 순서(index)를 키로 유지
     tasks: dict[int, object] = {}
