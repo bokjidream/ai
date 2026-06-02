@@ -52,11 +52,15 @@ class TestGraphCompile:
             "rag_detail",
             "detail_interview",
             "document_guidance",
+            "service_detail_pause",
+            "draft_field_extractor",
+            "draft_fields_pause",
             "draft_writer",
             "report_writer",
         ]
         for node in expected:
             assert node in nodes
+        assert len(nodes) == len(expected) + 2  # __start__ / __end__ 포함
 
 
 class TestConditionalEdges:
