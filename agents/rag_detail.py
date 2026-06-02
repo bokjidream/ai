@@ -78,12 +78,17 @@ async def rag_detail_node(state: AgentState) -> dict:
     profile: UserProfile = state["user_profile"]
 
     detail = None
-    for _ in range(2):
+    for attempt in range(2):
         try:
             detail = await rag_client.get_detail(selected.serv_id)
             break
-        except Exception:
-            continue
+        except Exception as e:
+            logger.warning(
+                "[rag_detail] 상세 조회 실패 (시도 %d/2) serv_id=%s: %s",
+                attempt + 1,
+                selected.serv_id,
+                e,
+            )
 
     if detail is None:
         error_msg = (
@@ -100,6 +105,11 @@ async def rag_detail_node(state: AgentState) -> dict:
         update={
             "serv_nm": detail.get("serv_nm", "") or selected.serv_nm,
             "serv_dgst": detail.get("serv_dgst", "") or selected.serv_dgst,
+            "tgtr_dtl_cn": detail.get("tgtr_dtl_cn", ""),
+            "slct_crit_cn": detail.get("slct_crit_cn", ""),
+            "alw_serv_cn": detail.get("alw_serv_cn", ""),
+            "sprt_cyc_nm": detail.get("sprt_cyc_nm", ""),
+            "srv_pvsn_nm": detail.get("srv_pvsn_nm", ""),
             "required_documents": detail.get("required_documents", []),
             "application_method": detail.get("application_method", ""),
             "application_url": detail.get("application_url"),

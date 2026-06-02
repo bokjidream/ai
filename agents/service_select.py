@@ -50,7 +50,7 @@ async def service_select_node(state: AgentState) -> dict:
 
     # 입력 유효성 검사 루프 — 올바른 번호가 올 때까지 재interrupt
     while True:
-        match = re.search(r"\d+", user_input)
+        match = re.fullmatch(r"\d+", user_input.strip())
         if match:
             choice = int(match.group())
             if 1 <= choice <= len(candidates):

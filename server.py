@@ -29,7 +29,7 @@ from graph.state import (
 )
 from tools.hwp_filler import get_filled_forms_dir
 
-load_dotenv()
+load_dotenv(override=True)
 
 logging.config.dictConfig(
     {
@@ -231,6 +231,7 @@ def _initial_state() -> dict:
         "detail_last_answer": "",
         "extra_field_schemas": [],
         "filled_forms": [],
+        "reference_docs": [],
         "draft_extracted_fields": [],
         "draft_form_title": "",
         "draft_scan_path": "",
@@ -334,6 +335,7 @@ def _done_response(thread_id: str, state) -> ChatResponse:
     selected: WelfareCandidate | None = state.values.get("selected_service")
     candidates: list[WelfareCandidate] = state.values.get("welfare_candidates", [])
     filled_forms: list[dict] = state.values.get("filled_forms", [])
+    reference_docs: list[dict] = state.values.get("reference_docs", [])
     # saved_path(서버 내부 절대경로)는 클라이언트에 노출하지 않음
     public_filled_forms = [
         {k: v for k, v in f.items() if k != "saved_path"} for f in filled_forms
@@ -348,6 +350,7 @@ def _done_response(thread_id: str, state) -> ChatResponse:
             "selected_service": selected.model_dump() if selected else None,
             "welfare_candidates": [c.model_dump() for c in candidates],
             "filled_forms": public_filled_forms,
+            "reference_docs": reference_docs,
         },
     )
 
