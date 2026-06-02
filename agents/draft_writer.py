@@ -56,14 +56,14 @@ _NON_FILLABLE_RE = re.compile(
     r"|^\["  # [   ] 체크박스 텍스트
     r"|^※"  # 주석
     r"|^\d+\."  # 숫자 섹션 번호
+    r"|주민등록번호"  # 개인정보 보호 — 절대 묻지 않음
+    r"|주민번호"
 )
 
 # 최후 키워드 폴백용
 _PRIORITY_LABELS = [
     "성명",
-    "이름",
     "생년월일",
-    "주민등록번호",
     "전화번호",
     "연락처",
     "주소",
@@ -73,8 +73,22 @@ _PRIORITY_LABELS = [
 ]
 
 _LLM_MAX_RETRY = int(os.getenv("LLM_MAX_RETRY", "2"))
+
+_SECTION_APPLICANT = ("대상자", "신청자", "신청인", "본인")
+_SECTION_EMERGENCY = ("긴급연락처", "보호자", "가족", "연락인")
+
+
+def _section_rank(label: str) -> int:
+    """섹션 우선순위: 신청자(0) → 서비스 고유(1) → 긴급연락처/보호자(2)."""
+    if any(k in label for k in _SECTION_APPLICANT):
+        return 0
+    if any(k in label for k in _SECTION_EMERGENCY):
+        return 2
+    return 1
+
+
 _HWP_DOWNLOAD_RETRIES = int(os.getenv("HWP_DOWNLOAD_RETRIES", "4"))
-_DRAFT_FIELD_LIMIT = 5
+_DRAFT_FIELD_LIMIT = int(os.getenv("DRAFT_FIELD_LIMIT", "8"))
 
 
 def _is_application_form(title: str) -> bool:
@@ -158,6 +172,7 @@ async def _select_fields_with_llm(
                     "[draft_writer] LLM 선택 라벨이 스캔 목록과 불일치 — LLM 반환: %s",
                     selected,
                 )
+            valid.sort(key=lambda item: _section_rank(item["label"]))
             valid = valid[:_DRAFT_FIELD_LIMIT]
             logger.info(
                 "[draft_writer] LLM 필드 선택 %d개: %s",
@@ -538,16 +553,22 @@ async def draft_field_extractor_node(state: AgentState, config: RunnableConfig) 
         scan_path.unlink(missing_ok=True)
         scan_path = None  # 실패 시 재사용 불가
 
-    # 폴백: 행정/헤더 라벨 필터링 후 앞 5개
+    # 폴백: 행정/헤더 라벨 필터링 후 _PRIORITY_LABELS 우선 정렬 후 앞 5개
     if not priority_fields:
         fillable = [item for item in all_labels if _is_fillable_label(item["id"])]
         if fillable:
+            fillable.sort(
+                key=lambda item: next(
+                    (i for i, kw in enumerate(_PRIORITY_LABELS) if kw in item["id"]),
+                    len(_PRIORITY_LABELS),
+                )
+            )
             priority_fields = [
                 {"id": item["id"], "label": item["label"], "type": "text"}
                 for item in fillable[:5]
             ]
             logger.warning(
-                "[draft_field_extractor] LLM 선택 실패 — 필터링 후 앞 5개: %s",
+                "[draft_field_extractor] LLM 선택 실패 — 우선순위 정렬 후 앞 5개: %s",
                 [p["label"] for p in priority_fields],
             )
         else:
