@@ -20,7 +20,6 @@ import pdfplumber
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
-from graph.config import is_skip_interview
 from graph.state import AgentState, UserProfile, WelfareCandidate
 from tools.hwp_filler import (
     download_hwp,
@@ -88,7 +87,7 @@ def _section_rank(label: str) -> int:
 
 
 _HWP_DOWNLOAD_RETRIES = int(os.getenv("HWP_DOWNLOAD_RETRIES", "4"))
-_DRAFT_FIELD_LIMIT = int(os.getenv("DRAFT_FIELD_LIMIT", "8"))
+_DRAFT_FIELD_LIMIT = int(os.getenv("DRAFT_FIELD_LIMIT", "5"))
 
 
 def _is_application_form(title: str) -> bool:
@@ -493,8 +492,6 @@ async def draft_field_extractor_node(state: AgentState, config: RunnableConfig) 
     profile: UserProfile = state["user_profile"]
 
     forms = selected.application_forms or []
-    if not forms and is_skip_interview():
-        forms = _get_test_fixture_forms()
 
     hwp_forms = [f for f in forms if f.get("file_type", "").lower() in _SUPPORTED_HWP]
     hwp_form = next(
@@ -641,8 +638,6 @@ async def draft_writer_node(state: AgentState, config: RunnableConfig) -> dict:
     user_draft_fields: dict[str, str] = state.get("user_draft_fields", {})
 
     forms = selected.application_forms or []
-    if not forms and is_skip_interview():
-        forms = _get_test_fixture_forms()
 
     if not forms:
         logger.info("[draft_writer] application_forms 없음 — skip")
