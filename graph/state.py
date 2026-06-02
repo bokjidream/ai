@@ -93,6 +93,11 @@ class WelfareCandidate(BaseModel):
     priority: int = 0  # rag_search_node가 score 내림차순 정렬 후 부여
 
     # ── 2차 RAG 상세 조회 후 채워짐 ──
+    tgtr_dtl_cn: str = ""  # 지원대상 상세
+    slct_crit_cn: str = ""  # 선정기준
+    alw_serv_cn: str = ""  # 지원내용 (금액·혜택 등)
+    sprt_cyc_nm: str = ""  # 지원주기 (월 1회, 연 1회 등)
+    srv_pvsn_nm: str = ""  # 서비스 제공방식
     required_documents: list[str] = []
     application_method: str = ""
     application_url: str | None = None
@@ -125,6 +130,7 @@ class AgentState(TypedDict):
     detail_last_answer: str  # 직전 2단계 사용자 답변
     extra_field_schemas: list[dict]  # field_extractor가 생성한 extra 필드 스키마
     filled_forms: list[dict]  # form_filler_node가 생성한 완성 HWP 파일 메타데이터
+    reference_docs: list[dict]  # 안내문·공문 참고자료 [{"title", "url"}]
     draft_extracted_fields: list[dict]  # 웹 폼에 표시할 4-5개 필드 [{id, label, type}]
     draft_form_title: str  # 필드 추출 대상 신청서 제목 (pause 노드에서 사용)
     draft_scan_path: str  # extractor가 남긴 scan_temp 경로 (writer에서 재사용)

@@ -22,7 +22,7 @@ from agents.service_select import service_select_node
 from graph.config import is_skip_interview
 from graph.state import AgentState
 
-load_dotenv()
+load_dotenv(override=True)
 
 # SQLite/Postgres 모드일 때 커넥션 수명을 앱과 동일하게 유지하기 위한 스택
 _checkpointer_stack: AsyncExitStack | None = None
