@@ -25,8 +25,8 @@ from tools.hwp_filler import (
     download_hwp,
     fill_hwp,
     get_output_dir,
+    scan_hwp_all,
     scan_hwp_labels,
-    scan_hwp_text_labels,
 )
 from tools.json_utils import parse_llm_json
 from tools.llm import get_llm
@@ -59,21 +59,43 @@ _NON_FILLABLE_RE = re.compile(
     r"|주민번호"
 )
 
-# 최후 키워드 폴백용
-_PRIORITY_LABELS = [
+_EXTRA_FORM_MARKER_RE = re.compile(
+    r"^서식\s*[2-9]|^서식\s*[1-9][0-9]|^별지|^부록|^첨부"
+)
+
+
+def _truncate_to_main_form(labels: list[dict]) -> list[dict]:
+    """서식2 이후(위임장·이의신청서 등 부속서식) 라벨을 제거하고 서식1만 반환."""
+    result = []
+    for item in labels:
+        if _EXTRA_FORM_MARKER_RE.search(item["id"]):
+            break
+        result.append(item)
+    return result
+
+
+# 1순위 — 신청자 본인 정보 키워드 (코드에서 직접 선택 + 폴백 공용)
+_TIER1_KEYWORDS = [
     "성명",
-    "생년월일",
+    "이름",
     "전화번호",
+    "휴대전화",
+    "휴대폰",
+    "핸드폰",
     "연락처",
     "주소",
+    "전자우편",
+    "이메일",
     "계좌번호",
+    "금융기관명",
+    "금융기관",
     "은행명",
     "예금주",
 ]
 
 _LLM_MAX_RETRY = int(os.getenv("LLM_MAX_RETRY", "2"))
 
-_SECTION_APPLICANT = ("대상자", "신청자", "신청인", "본인")
+_SECTION_APPLICANT = ("대상자", "신청자", "신청인", "본인", "지급계좌")
 _SECTION_EMERGENCY = ("긴급연락처", "보호자", "가족", "연락인")
 
 
@@ -87,7 +109,7 @@ def _section_rank(label: str) -> int:
 
 
 _HWP_DOWNLOAD_RETRIES = int(os.getenv("HWP_DOWNLOAD_RETRIES", "4"))
-_DRAFT_FIELD_LIMIT = int(os.getenv("DRAFT_FIELD_LIMIT", "5"))
+_DRAFT_FIELD_LIMIT = int(os.getenv("DRAFT_FIELD_LIMIT", "8"))
 
 
 def _is_application_form(title: str) -> bool:
@@ -102,6 +124,26 @@ def _is_application_form(title: str) -> bool:
 def _is_fillable_label(label_id: str) -> bool:
     """폴백 선택 시 행정/헤더 라벨 여부 판별."""
     return not _NON_FILLABLE_RE.search(label_id)
+
+
+def _fallback_fields(all_labels: list[dict]) -> list[dict]:
+    """LLM 선택 완전 실패 시 _TIER1_KEYWORDS 우선순위로 폴백 필드를 반환."""
+    fillable = [item for item in all_labels if _is_fillable_label(item["id"])]
+    if fillable:
+        fillable.sort(
+            key=lambda item: next(
+                (i for i, kw in enumerate(_TIER1_KEYWORDS) if kw in item["id"]),
+                len(_TIER1_KEYWORDS),
+            )
+        )
+        return [
+            {"id": item["id"], "label": item["label"], "type": "text"}
+            for item in fillable[:_DRAFT_FIELD_LIMIT]
+        ]
+    return [
+        {"id": kw, "label": kw, "type": "text"}
+        for kw in _TIER1_KEYWORDS[:_DRAFT_FIELD_LIMIT]
+    ]
 
 
 def _sanitize_filename(name: str) -> str:
@@ -130,66 +172,133 @@ def _get_test_fixture_forms() -> list[dict]:
 # ── LLM 필드 선택 ─────────────────────────────────────────────────────────────
 
 
+def _normalize_label(s: str) -> str:
+    """라벨 비교용 정규화: 구두점·특수문자 제거 후 공백 정리, 소문자 변환.
+
+    "신청인 - 성명" → "신청인 성명"
+    "신청인-성명"   → "신청인 성명"
+    """
+    s = re.sub(r"[\-_·•·\(\)\[\]]+", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s.lower()
+
+
+def _fuzzy_lookup(s: str, label_by_display: dict[str, dict]) -> dict | None:
+    """정확 일치 → 정규화 일치 순으로 라벨 매핑을 찾는다."""
+    if s in label_by_display:
+        return label_by_display[s]
+    norm_s = _normalize_label(s)
+    for key, item in label_by_display.items():
+        if _normalize_label(key) == norm_s:
+            return item
+    return None
+
+
+def _pick_tier1(labels: list[dict]) -> tuple[list[dict], list[dict]]:
+    """_TIER1_KEYWORDS 기반으로 1순위 필드를 코드에서 직접 선택.
+
+    전화번호 계열(전화번호·휴대전화·연락처)은 하나만 포함한다.
+    반환: (tier1 목록, 나머지 목록)
+    """
+    _PHONE_KEYWORDS = {"전화번호", "휴대전화", "휴대폰", "핸드폰", "연락처"}
+    tier1: list[dict] = []
+    rest: list[dict] = []
+    seen_ids: set[str] = set()
+    phone_included = False
+
+    for item in labels:
+        label_id = item["id"]
+        matched_kw = next((kw for kw in _TIER1_KEYWORDS if kw in label_id), None)
+        if matched_kw:
+            if matched_kw in _PHONE_KEYWORDS:
+                if phone_included:
+                    rest.append(item)
+                    continue
+                phone_included = True
+            if label_id not in seen_ids:
+                seen_ids.add(label_id)
+                tier1.append(item)
+        else:
+            rest.append(item)
+
+    if len(tier1) > _DRAFT_FIELD_LIMIT:
+        rest = tier1[_DRAFT_FIELD_LIMIT:] + rest
+        tier1 = tier1[:_DRAFT_FIELD_LIMIT]
+    return tier1, rest
+
+
 async def _select_fields_with_llm(
     serv_nm: str,
     form_title: str,
     all_labels: list[dict],
     user_info: str,
 ) -> list[dict]:
-    """LLM으로 사용자가 직접 입력해야 할 라벨 목록 반환.
+    """1순위는 코드에서 직접 선택, 남은 슬롯만 LLM이 2순위로 채운다.
 
     all_labels: [{"id": "원본라벨", "label": "섹션 - 원본라벨"}, ...]
-    반환값도 동일 구조. 실패 시 빈 리스트.
+    반환값도 동일 구조. 실패 시 tier1만 반환.
     """
-    labels_text = "\n".join(f"- {item['label']}" for item in all_labels)
-    label_by_display = {item["label"]: item for item in all_labels}
-    prompt_template = load_prompt("draft_field_selector")
-    prompt = prompt_template.format(
-        serv_nm=serv_nm,
-        form_title=form_title,
-        form_labels=labels_text,
-        user_info=user_info,
-    )
-    llm = get_llm()
-    last_err: Exception | None = None
-    for attempt in range(1, _LLM_MAX_RETRY + 1):
-        try:
-            response = await llm.ainvoke(prompt)
-            content = response.content.strip()
-            if not content:
-                raise ValueError("LLM이 빈 응답 반환")
-            selected = parse_llm_json(content, root="[")
-            if not isinstance(selected, list):
-                raise ValueError(f"배열이 아닌 응답: {type(selected)}")
-            valid = [
-                label_by_display[s]
-                for s in selected
-                if isinstance(s, str) and s in label_by_display
-            ]
-            if not valid:
-                logger.warning(
-                    "[draft_writer] LLM 선택 라벨이 스캔 목록과 불일치 — LLM 반환: %s",
-                    selected,
-                )
-            valid.sort(key=lambda item: _section_rank(item["label"]))
-            valid = valid[:_DRAFT_FIELD_LIMIT]
-            logger.info(
-                "[draft_writer] LLM 필드 선택 %d개: %s",
-                len(valid),
-                [v["label"] for v in valid],
-            )
-            return valid
-        except Exception as e:
-            last_err = e
-            logger.warning(
-                "[draft_writer] LLM 필드 선택 실패 (시도 %d/%d): %s",
-                attempt,
-                _LLM_MAX_RETRY,
-                e,
-            )
+    fillable = [item for item in all_labels if _is_fillable_label(item["id"])]
+    tier1, rest = _pick_tier1(fillable)
 
-    logger.warning("[draft_writer] LLM 필드 선택 최종 실패: %s", last_err)
-    return []
+    remaining_slots = _DRAFT_FIELD_LIMIT - len(tier1)
+
+    tier2: list[dict] = []
+    if remaining_slots > 0 and rest:
+        label_by_display = {item["label"]: item for item in fillable}
+        labels_text = "\n".join(f"- {item['label']}" for item in rest)
+        already_selected = "\n".join(f"- {item['label']}" for item in tier1) or "(없음)"
+        prompt_template = load_prompt("draft_field_selector")
+        prompt = prompt_template.format(
+            serv_nm=serv_nm,
+            form_title=form_title,
+            form_labels=labels_text,
+            user_info=user_info,
+            remaining_slots=remaining_slots,
+            already_selected=already_selected,
+        )
+        llm = get_llm()
+        last_err: Exception | None = None
+        for attempt in range(1, _LLM_MAX_RETRY + 1):
+            try:
+                response = await llm.ainvoke(prompt)
+                content = response.content.strip()
+                if not content:
+                    raise ValueError("LLM이 빈 응답 반환")
+                selected = parse_llm_json(content, root="[")
+                if not isinstance(selected, list):
+                    raise ValueError(f"배열이 아닌 응답: {type(selected)}")
+                tier1_ids = {item["id"] for item in tier1}
+                seen: set[str] = set()
+                for s in selected:
+                    if not isinstance(s, str):
+                        continue
+                    item = _fuzzy_lookup(s, label_by_display)
+                    if item and item["id"] not in tier1_ids and item["id"] not in seen:
+                        seen.add(item["id"])
+                        tier2.append(item)
+                        if len(tier2) >= remaining_slots:
+                            break
+                break
+            except Exception as e:
+                last_err = e
+                logger.warning(
+                    "[draft_writer] LLM 2순위 선택 실패 (시도 %d/%d): %s",
+                    attempt,
+                    _LLM_MAX_RETRY,
+                    e,
+                )
+        else:
+            if last_err is not None:
+                logger.warning("[draft_writer] LLM 2순위 선택 최종 실패: %s", last_err)
+
+    result = tier1 + tier2
+    logger.info(
+        "[draft_writer] LLM 필드 선택 %d개: %s",
+        len(result),
+        [v["label"] for v in result],
+    )
+    return result
 
 
 # ── HWP/HWPX 채우기 ───────────────────────────────────────────────────────────
@@ -254,6 +363,7 @@ async def _process_hwp(
     thread_id: str,
     user_draft_fields: dict[str, str] | None = None,
     predownloaded_path: Path | None = None,
+    pre_scanned_labels: list[str] | None = None,
 ) -> dict:
     """HWP/HWPX: 다운로드(또는 scan_temp 재사용) → LLM 필드 매핑 → fill_hwp.js 실행."""
     title = form.get("title", f"form_{index}")
@@ -304,10 +414,14 @@ async def _process_hwp(
                     )
                     await asyncio.sleep(2 * _dl_attempt)
 
-        form_labels = await scan_hwp_labels(raw_path)
-        logger.debug(
-            "[draft_writer] 스캔된 라벨 %d개: %s", len(form_labels), form_labels
-        )
+        if pre_scanned_labels is not None:
+            form_labels = pre_scanned_labels
+            logger.debug("[draft_writer] 스캔 캐시 재사용 — %d개", len(form_labels))
+        else:
+            form_labels = await scan_hwp_labels(raw_path)
+            logger.debug(
+                "[draft_writer] 스캔된 라벨 %d개: %s", len(form_labels), form_labels
+            )
 
         field_mapping = await _generate_hwp_field_mapping(
             serv_nm=serv_nm,
@@ -513,6 +627,7 @@ async def draft_field_extractor_node(state: AgentState, config: RunnableConfig) 
 
     priority_fields: list[dict] = []
     all_labels: list[dict] = []
+    scan_labels: list[str] = []
 
     try:
         for _dl_attempt in range(1, _HWP_DOWNLOAD_RETRIES + 1):
@@ -530,7 +645,28 @@ async def draft_field_extractor_node(state: AgentState, config: RunnableConfig) 
                 )
                 await asyncio.sleep(2 * _dl_attempt)
 
-        all_labels = await scan_hwp_text_labels(scan_path)
+        # 한 번의 스캔으로 text_labels(필드 선택용) + labels(매핑용) 동시 획득
+        scan_data = await scan_hwp_all(scan_path)
+        scan_labels = scan_data.get("labels", [])  # writer가 재사용
+
+        raw_text_labels: list = scan_data.get("text_labels", [])
+        all_labels_raw = [
+            {
+                "id": (item.get("id", "") if isinstance(item, dict) else item),
+                "label": (
+                    item.get("label", item.get("id", ""))
+                    if isinstance(item, dict)
+                    else item
+                ),
+            }
+            for item in raw_text_labels
+        ]
+        all_labels = _truncate_to_main_form(all_labels_raw)
+        logger.info(
+            "[draft_field_extractor] 스캔 라벨 %d개: %s",
+            len(all_labels),
+            [item["label"] for item in all_labels],
+        )
         # scan_path를 삭제하지 않고 보존 → draft_writer_node에서 raw로 재사용
 
         if all_labels:
@@ -550,29 +686,14 @@ async def draft_field_extractor_node(state: AgentState, config: RunnableConfig) 
         scan_path.unlink(missing_ok=True)
         scan_path = None  # 실패 시 재사용 불가
 
-    # 폴백: 행정/헤더 라벨 필터링 후 _PRIORITY_LABELS 우선 정렬 후 앞 5개
     if not priority_fields:
-        fillable = [item for item in all_labels if _is_fillable_label(item["id"])]
-        if fillable:
-            fillable.sort(
-                key=lambda item: next(
-                    (i for i, kw in enumerate(_PRIORITY_LABELS) if kw in item["id"]),
-                    len(_PRIORITY_LABELS),
-                )
-            )
-            priority_fields = [
-                {"id": item["id"], "label": item["label"], "type": "text"}
-                for item in fillable[:5]
-            ]
+        priority_fields = _fallback_fields(all_labels)
+        if priority_fields:
             logger.warning(
-                "[draft_field_extractor] LLM 선택 실패 — 우선순위 정렬 후 앞 5개: %s",
+                "[draft_field_extractor] LLM 선택 실패 — 폴백 %d개: %s",
+                len(priority_fields),
                 [p["label"] for p in priority_fields],
             )
-        else:
-            # 스캔 자체 실패 → 키워드 폴백
-            priority_fields = [
-                {"id": p, "label": p, "type": "text"} for p in _PRIORITY_LABELS[:5]
-            ]
 
     logger.info(
         "[draft_field_extractor] 필드 %d개 추출: %s",
@@ -583,6 +704,7 @@ async def draft_field_extractor_node(state: AgentState, config: RunnableConfig) 
         "draft_extracted_fields": priority_fields,
         "draft_form_title": form_title,
         "draft_scan_path": str(scan_path) if scan_path and scan_path.exists() else "",
+        "draft_scan_labels": scan_labels,
     }
 
 
@@ -646,9 +768,10 @@ async def draft_writer_node(state: AgentState, config: RunnableConfig) -> dict:
     user_info = format_user_profile(profile)
     output_dir = get_output_dir(thread_id)
 
-    # extractor가 남긴 scan_temp — 첫 번째 신청서 HWP에만 적용
+    # extractor가 남긴 scan_temp + 스캔 캐시 — 첫 번째 신청서 HWP에만 적용
     scan_path_str: str = state.get("draft_scan_path", "")
     scan_cache: Path | None = Path(scan_path_str) if scan_path_str else None
+    cached_labels: list[str] = state.get("draft_scan_labels", [])
 
     # scan_cache를 받을 form 결정 (extractor와 동일 로직)
     hwp_forms = [f for f in forms if f.get("file_type", "").lower() in _SUPPORTED_HWP]
@@ -662,7 +785,7 @@ async def draft_writer_node(state: AgentState, config: RunnableConfig) -> dict:
         file_type = form.get("file_type", "").lower()
 
         if file_type in _SUPPORTED_HWP and _is_application_form(form.get("title", "")):
-            predownloaded = scan_cache if form is scanned_form else None
+            is_scanned = form is scanned_form
             tasks[i] = _process_hwp(
                 form=form,
                 index=i,
@@ -672,7 +795,10 @@ async def draft_writer_node(state: AgentState, config: RunnableConfig) -> dict:
                 output_dir=output_dir,
                 thread_id=thread_id,
                 user_draft_fields=user_draft_fields,
-                predownloaded_path=predownloaded,
+                predownloaded_path=scan_cache if is_scanned else None,
+                pre_scanned_labels=(
+                    cached_labels if is_scanned and cached_labels else None
+                ),
             )
         elif file_type == "pdf" and _is_application_form(form.get("title", "")):
             tasks[i] = _process_pdf(
