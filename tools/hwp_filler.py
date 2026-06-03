@@ -86,6 +86,15 @@ async def _scan_hwp_raw(input_path: Path) -> dict:
         return {}
 
 
+async def scan_hwp_all(input_path: Path) -> dict:
+    """HWP/HWPX를 한 번만 스캔하여 labels(전체)와 text_labels(텍스트 전용)를 함께 반환.
+
+    반환 형식: {"labels": [...], "text_labels": [...]}
+    실패 시 빈 dict를 반환합니다.
+    """
+    return await _scan_hwp_raw(input_path)
+
+
 async def scan_hwp_labels(input_path: Path) -> list[str]:
     """HWP/HWPX 표 셀에서 전체 라벨 후보 목록을 반환합니다 (체크박스 포함).
 

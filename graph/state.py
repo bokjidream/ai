@@ -114,8 +114,6 @@ class AgentState(TypedDict):
     welfare_candidates: list[WelfareCandidate]
     selected_service: WelfareCandidate | None
     detail_missing_fields: list[str]
-    document_guidance: str
-    application_guide: str
     final_report: str
     # 1단계 인터뷰 재질문 추적 (hwnv_client re_ask 흐름용)
     interview_current_field: str | None  # 현재 처리 중인 필드 (None=새 필드)
@@ -131,7 +129,8 @@ class AgentState(TypedDict):
     extra_field_schemas: list[dict]  # field_extractor가 생성한 extra 필드 스키마
     filled_forms: list[dict]  # form_filler_node가 생성한 완성 HWP 파일 메타데이터
     reference_docs: list[dict]  # 안내문·공문 참고자료 [{"title", "url"}]
-    draft_extracted_fields: list[dict]  # 웹 폼에 표시할 4-5개 필드 [{id, label, type}]
+    draft_extracted_fields: list[dict]  # 웹 폼에 표시할 필드 [{id, label, type}]
     draft_form_title: str  # 필드 추출 대상 신청서 제목 (pause 노드에서 사용)
-    draft_scan_path: str  # extractor가 남긴 scan_temp 경로 (writer에서 재사용)
+    draft_scan_path: str  # extractor가 남긴 scan_temp 경로 (writer에서 raw 재사용)
+    draft_scan_labels: list[str]  # 첫 스캔의 전체 labels — writer에서 재스캔 생략용
     user_draft_fields: dict[str, str]  # 사용자가 입력한 값 {id: value}

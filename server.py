@@ -219,8 +219,6 @@ def _initial_state() -> dict:
         "welfare_candidates": [],
         "selected_service": None,
         "detail_missing_fields": [],
-        "document_guidance": "",
-        "application_guide": "",
         "final_report": "",
         "interview_current_field": None,
         "interview_last_question": "",
@@ -312,8 +310,6 @@ def _service_detail_response(thread_id: str, state) -> ChatResponse:
         thread_id=thread_id,
         type="service_detail",
         data={
-            "document_guidance": state.values.get("document_guidance", ""),
-            "application_guide": state.values.get("application_guide", ""),
             "selected_service": selected.model_dump() if selected else None,
             "welfare_candidates": [c.model_dump() for c in candidates],
         },
@@ -345,8 +341,6 @@ def _done_response(thread_id: str, state) -> ChatResponse:
         type="done",
         data={
             "final_report": state.values.get("final_report", ""),
-            "document_guidance": state.values.get("document_guidance", ""),
-            "application_guide": state.values.get("application_guide", ""),
             "selected_service": selected.model_dump() if selected else None,
             "welfare_candidates": [c.model_dump() for c in candidates],
             "filled_forms": public_filled_forms,
