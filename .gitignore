@@ -1,0 +1,13 @@
+.DS_Store
+.claude/
+.idea
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/*.db
+checkpoints.db
+checkpoints.db-shm
+checkpoints.db-wal
+scripts/node_modules/
+filled_forms/

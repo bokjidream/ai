@@ -1,0 +1,88 @@
+[project]
+name = "welfare-chatbot-ai"
+version = "0.1.0"
+description = "복지 서비스 자가진단 AI 에이전트"
+requires-python = ">=3.11"
+dependencies = [
+    "langgraph>=0.4.0",
+    "langchain-groq>=1.1.2",
+    "langchain-community>=0.3.0",
+    "pydantic>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "httpx>=0.28.1",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "langgraph-checkpoint-sqlite>=3.0.3",
+    "langgraph-checkpoint-postgres>=3.1.0",
+    "psycopg[binary]>=3.3.4",
+    "tenacity>=8.0.0",
+    "pdfplumber>=0.11.0",
+]
+
+[tool.ruff]
+# 구글 스타일 가이드는 보통 80자를 권장하지만, 최근 가독성을 위해 88~100자를 많이 사용합니다.
+line-length = 88
+target-version = "py311"
+
+# 린팅 제외 폴더
+exclude = [
+    ".git",
+    ".ruff_cache",
+    ".venv",
+    "venv",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+# 검사할 규칙 목록
+select = [
+    "E",   # pycodestyle 에러
+    "F",   # pyflakes (미사용 변수/모듈 등)
+    "W",   # pycodestyle 경고
+    "I",   # isort (import 정렬)
+    "UP",  # pyupgrade (최신 파이썬 문법으로 자동 변환)
+    "D",   # pydocstyle (Docstring 컨벤션)
+    "B",   # flake8-bugbear (잠재적 버그 탐지)
+    "TCH", # flake8-type-checking (타입 힌트 관련)
+]
+
+# 무시할 규칙 목록
+ignore = [
+    "D100", # public module에 대한 docstring 강제 무시
+    "D104", # public package에 대한 docstring 강제 무시
+    "B008", # 함수 인자 기본값으로 함수 호출 허용 (FastAPI의 Depends, Query 등 사용을 위해 필수)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D101", "D102", "D103"]
+
+[tool.ruff.lint.pydocstyle]
+# Docstring 컨벤션을 구글 스타일로 지정
+convention = "google"
+
+[tool.ruff.lint.isort]
+# import 정렬 시 로컬 모듈을 특정하여 분리
+known-first-party = ["agents", "graph", "tools"]
+
+[tool.ruff.format]
+# 따옴표 및 들여쓰기 설정 (표준)
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = ["integration: 실제 LLM을 호출하는 통합 테스트 (deselect with -m 'not integration')"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+    "ruff>=0.15.10",
+]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.25.0",
+    "pytest-httpx>=0.36.2",
+]

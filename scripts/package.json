@@ -1,0 +1,13 @@
+{
+  "name": "bokjidream-hwp-scripts",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HWP 양식 자동 채우기 Node.js 스크립트",
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "k-skill-rhwp": "^0.2.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
