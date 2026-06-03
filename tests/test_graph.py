@@ -29,8 +29,6 @@ def _base_state(**overrides) -> dict:
         "welfare_candidates": [],
         "selected_service": None,
         "detail_missing_fields": [],
-        "document_guidance": "",
-        "application_guide": "",
         "final_report": "",
     }
     state.update(overrides)
@@ -51,7 +49,6 @@ class TestGraphCompile:
             "service_select",
             "rag_detail",
             "detail_interview",
-            "document_guidance",
             "service_detail_pause",
             "draft_field_extractor",
             "draft_fields_pause",
@@ -87,4 +84,4 @@ class TestConditionalEdges:
 
     def test_detail_interview_proceeds_when_complete(self):
         state = _base_state(detail_missing_fields=[])
-        assert route_after_detail_interview(state) == "document_guidance"
+        assert route_after_detail_interview(state) == "service_detail_pause"

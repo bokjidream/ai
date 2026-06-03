@@ -43,12 +43,6 @@ def _make_state(**kwargs) -> dict:
         "welfare_candidates": [],
         "selected_service": _make_selected(),
         "detail_missing_fields": [],
-        "document_guidance": (
-            "1. 신분증 사본: 주민센터에서 발급\n2. 사회보장급여 신청서: 주민센터 비치"
-        ),
-        "application_guide": (
-            "[신청인 성명] → 본인 성명 기재\n[생년월일] → YYYYMMDD 형식 기재"
-        ),
         "final_report": "",
     }
     defaults.update(kwargs)
@@ -79,12 +73,12 @@ class TestReportWriterNode:
         assert result["messages"][0].content == "보고서 내용"
 
     @patch("agents.report_writer.get_llm")
-    async def test_empty_application_guide_returns_fallback(self, mock_get_llm):
-        state = _make_state(application_guide="")
+    async def test_no_selected_service_returns_fallback(self, mock_get_llm):
+        state = _make_state(selected_service=None)
 
         result = await report_writer_node(state)
 
-        assert "신청 가이드가 없습니다" in result["final_report"]
+        assert "선택된 서비스가 없습니다" in result["final_report"]
         assert isinstance(result["messages"][0], AIMessage)
         mock_get_llm.assert_not_called()
 
@@ -100,17 +94,19 @@ class TestReportWriterNode:
         assert "기초생활수급자 생계급여" in call_args
 
     @patch("agents.report_writer.get_llm")
-    async def test_llm_called_with_guides(self, mock_get_llm):
+    async def test_llm_called_with_raw_documents(self, mock_get_llm):
         mock_llm = MagicMock()
         mock_llm.ainvoke = AsyncMock(return_value=MagicMock(content="결과"))
         mock_get_llm.return_value = mock_llm
 
         state = _make_state(
-            document_guidance="서류 안내 텍스트",
-            application_guide="신청서 작성 가이드 텍스트",
+            selected_service=_make_selected(
+                required_documents=["신분증", "사회보장급여 신청서"],
+                application_method="읍면동 주민센터 방문 신청",
+            )
         )
         await report_writer_node(state)
 
         call_args = mock_llm.ainvoke.call_args[0][0]
-        assert "서류 안내 텍스트" in call_args
-        assert "신청서 작성 가이드 텍스트" in call_args
+        assert "신분증" in call_args
+        assert "읍면동 주민센터 방문 신청" in call_args

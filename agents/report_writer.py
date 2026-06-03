@@ -1,4 +1,4 @@
-"""최종 보고서 에이전트 — 안내 텍스트를 마크다운 보고서로 재구성."""
+"""최종 보고서 에이전트 — 서비스 정보를 마크다운 보고서로 구성."""
 
 import logging
 from pathlib import Path
@@ -18,20 +18,21 @@ def _load_prompt() -> str:
 
 
 async def report_writer_node(state: AgentState) -> dict:
-    """application_guide와 document_guidance를 마크다운 보고서로 재구성."""
+    """서비스 상세 정보를 마크다운 보고서로 구성."""
     selected: WelfareCandidate = state["selected_service"]
-    application_guide: str = state["application_guide"]
-    document_guidance: str = state["document_guidance"]
 
-    if not application_guide:
-        serv_nm = selected.serv_nm if selected else "선택된 서비스"
-        fallback = (
-            f"'{serv_nm}' 신청 가이드가 없습니다. 이전 단계를 다시 진행해 주세요."
-        )
+    if not selected:
+        fallback = "선택된 서비스가 없습니다. 이전 단계를 다시 진행해 주세요."
         return {
             "final_report": fallback,
             "messages": [AIMessage(content=fallback)],
         }
+
+    required_documents_text = (
+        "\n".join(f"- {d}" for d in selected.required_documents)
+        if selected.required_documents
+        else "서류 목록 정보 없음"
+    )
 
     prompt = _load_prompt().format(
         serv_nm=selected.serv_nm,
@@ -41,8 +42,8 @@ async def report_writer_node(state: AgentState) -> dict:
         alw_serv_cn=selected.alw_serv_cn or "정보 없음",
         sprt_cyc_nm=selected.sprt_cyc_nm or "",
         srv_pvsn_nm=selected.srv_pvsn_nm or "",
-        document_guidance=document_guidance,
-        application_guide=application_guide,
+        required_documents=required_documents_text,
+        application_method=selected.application_method or "신청방법 정보 없음",
     )
 
     llm = get_llm()
