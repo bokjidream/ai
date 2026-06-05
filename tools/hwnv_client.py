@@ -220,3 +220,41 @@ async def extract_extra_field_schemas(
         content = resp.json()["choices"][0]["message"]["content"]
         result = _parse_json_content(content)
         return result.get("extra_fields", [])
+
+
+async def generate_eligibility_reason(
+    serv_nm: str,
+    serv_dgst: str,
+    user: dict,
+) -> str:
+    """elig_reasoner 프로필로 서비스 선정 이유를 한 문장 생성합니다.
+
+    Returns:
+        선정 이유 문자열. 실패 시 빈 문자열.
+    """
+    payload = {
+        "user": user,
+        "service": {
+            "serv_nm": serv_nm,
+            "serv_dgst": serv_dgst,
+            "trgterIndvdlArray": "",
+        },
+    }
+    try:
+        async with httpx.AsyncClient(base_url=_BASE_URL, timeout=_TIMEOUT) as client:
+            resp = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "elig_reasoner",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": json.dumps(payload, ensure_ascii=False),
+                        }
+                    ],
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+    except Exception:
+        return ""

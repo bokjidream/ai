@@ -1,11 +1,13 @@
 """RAG 검색 노드 — UserProfile로 복지 서비스 후보 목록 조회."""
 
+import asyncio
 import logging
 import os
 
 from langchain_core.messages import AIMessage
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+import tools.hwnv_client as hwnv_client
 import tools.rag_client as rag_client
 from graph.state import AgentState, UserProfile, WelfareCandidate
 
@@ -73,6 +75,18 @@ async def rag_search_node(state: AgentState) -> dict:
     # score 내림차순 정렬
     results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
 
+    # 후보별 선정 이유를 병렬로 생성
+    reasons = await asyncio.gather(
+        *[
+            hwnv_client.generate_eligibility_reason(
+                serv_nm=item["serv_nm"],
+                serv_dgst=item["serv_dgst"],
+                user=_profile_to_dict(profile),
+            )
+            for item in results
+        ]
+    )
+
     candidates = [
         WelfareCandidate(
             serv_id=item["serv_id"],
@@ -81,9 +95,11 @@ async def rag_search_node(state: AgentState) -> dict:
             department=item.get("department", ""),
             score=item.get("score", 0.0),
             priority=priority,
-            eligibility_reason="",
+            eligibility_reason=reason,
         )
-        for priority, item in enumerate(results, start=1)
+        for priority, (item, reason) in enumerate(
+            zip(results, reasons, strict=False), start=1
+        )
     ]
 
     return {"welfare_candidates": candidates}
